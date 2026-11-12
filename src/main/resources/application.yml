@@ -1,0 +1,28 @@
+spring:
+  application:
+    name: wsid-backend
+  profiles:
+    default: local             # 프로필을 지정하지 않으면 local. 배포 환경은 SPRING_PROFILES_ACTIVE=prod
+  threads:
+    virtual:
+      enabled: true            # AI 응답을 기다리는 동안 OS 스레드를 묶지 않아요
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/wsid}
+    username: ${DB_USERNAME:wsid}
+    password: ${DB_PASSWORD:wsid}
+  jpa:
+    open-in-view: false        # 컨트롤러에서 DB 커넥션을 붙잡지 않아요
+    hibernate:
+      ddl-auto: validate       # 테이블은 Flyway가 만들고, 엔티티와 맞는지만 서버 시작 때 검사해요
+
+wsid:
+  ai:
+    mode: ${AI_MODE:fake}      # fake: 가짜 응답으로 개발 / http: AI 서비스(FastAPI) 호출
+    base-url: ${AI_BASE_URL:http://localhost:8000}
+    api-key: ${AI_API_KEY:local-dev-key}
+    connect-timeout: 2s
+    read-timeout: 20s          # 훈련 턴 전체 25초(제안값) 안에 대체 문구로 넘어가도록
+  training:
+    key-scene-deadline-turn: 12
+    max-simulation-turns: 15
+    session-ttl: 24h           # 무활동 만료 시간 (초안, 팀 결정)

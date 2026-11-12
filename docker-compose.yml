@@ -1,0 +1,17 @@
+# 로컬 개발용 DB. 각자 자기 컴퓨터에서 띄워요.
+#   docker compose up -d      시작
+#   docker compose down -v    데이터까지 지우고 종료
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: wsid
+      POSTGRES_USER: wsid
+      POSTGRES_PASSWORD: wsid
+    ports:
+      - "5432:5432"
+    volumes:
+      - wsid-db:/var/lib/postgresql/data
+
+volumes:
+  wsid-db:
