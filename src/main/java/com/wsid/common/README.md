@@ -6,9 +6,10 @@
 
 | 명세서 항목 | 구분 | 상태 | 관련 코드 |
 |---|---|---|---|
-| 세션·리포트 소유권 확인 | 비기능 | 구현 | `auth/CurrentUser` + 각 repository의 `findByIdAndUserId` |
+| 훈련 소유권 확인 | 비기능 | 개발 계정 기준 구현 | `auth/CurrentUser` + 훈련 repository의 `findByIdAndUserId` |
+| 리포트·비회원 상담 소유권 확인 | 비기능 | 미구현 | 각 기능 서비스에서 적용 예정 |
 | 중복 처리와 상태 충돌 방지 | 비기능 | 구현 | `ErrorCode.DUPLICATE_REQUEST`, `SESSION_VERSION_CONFLICT` |
-| 훈련 세션 만료 | 비기능 | 구현 | `ErrorCode.SESSION_EXPIRED` |
+| 훈련 세션 만료 | 비기능 | 판정·턴 거절 구현, 만료 상태 정리는 미구현 | `ErrorCode.SESSION_EXPIRED` |
 
 ## 파일
 
@@ -16,10 +17,18 @@
 |---|---|
 | `error/ErrorCode` | 오류 코드, HTTP 상태, 사용자에게 보여줄 문구 |
 | `error/ApiException` | service에서 던지는 예외 |
-| `error/ErrorResponse` | 모든 오류 응답의 형식 `{ "code": "...", "message": "..." }` |
+| `error/ErrorResponse` | 현재 처리하는 예외의 응답 형식 `{ "code": "...", "message": "..." }` |
 | `error/GlobalExceptionHandler` | 예외를 오류 응답으로 변환 |
 | `config/SecurityConfig` | 경로별 접근 권한, CSRF |
 | `domain/MessageSender`, `InputKind` | training과 solution의 메시지 테이블이 같이 쓰는 enum |
+
+## 접근 정책과 현재 보안 설정
+
+목표 정책은 훈련·리포트·내 정보·세션 확인·로그아웃은 로그인 필수, 피해 대응 상담·GUIDE는 비회원 허용이에요. 상담에는 별도 소유권 확인이 필요해요. 세션 로그인은 아직 구현하지 않았고 local은 개발 계정을 사용해요.
+
+`SecurityConfig`의 현재 `/api/training/**`, `/api/solution/**`, `/api/content/**` 규칙은 이전 경로와 개발 편의를 위한 설정이에요. 새 `/api/trainings/**`, `/api/reports/**`, `/api/solutions/**`, `/api/guides/**`, AUTH 세부 경로에 맞춰 권한을 정렬하고 쿠키 기반 인증의 CSRF 정책을 구현해야 해요.
+
+현재 `GlobalExceptionHandler`는 API 예외·Bean Validation·낙관적 잠금 충돌을 처리해요. JSON 파싱 오류·보안 계층 오류 등은 공통 형식이 보장되지 않으므로 보완해야 해요.
 
 ## 오류를 추가하는 방법
 

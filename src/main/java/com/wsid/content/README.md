@@ -14,6 +14,19 @@ DB 테이블이 없고, `src/main/resources/content`의 YAML 파일이 원본이
 | 공식 전화·사이트 연결 | SOL-006 | 상 | 미구현 |
 | 공식 출처·링크 검토 | 비기능 | 상 | YAML 형식 초안 |
 
+## 목표 공개 API
+
+모두 로그인 없이 조회해요. 내부 패키지 이름은 `content`, 외부 URL은 `/api/guides`예요. 기존 `SecurityConfig`는 새 guides 경로를 공개하도록 정렬해야 해요.
+
+| API ID | 메서드 | 경로 | 인증 | 현재 구현 |
+|---|---|---|---|---|
+| GUIDE-01 | GET | `/api/guides/fraud-types` | 불필요 | content 문서 계획; 로더·API 없음, 현재 보안 규칙에 공개 경로 등록 필요 |
+| GUIDE-02 | GET | `/api/guides/fraud-types/{code}` | 불필요 | content 문서 계획; 로더·API 없음 |
+| GUIDE-03 | GET | `/api/guides/response-cards` | 불필요 | 카드 형식 README만; 적용 조건의 요청·응답 정의 필요 |
+| GUIDE-04 | GET | `/api/guides/institutions` | 불필요 | content 문서 계획; API 없음 |
+
+엑셀 SOL-001/002는 GUIDE-01/02, 직접 카드 조회 SOL-004는 GUIDE-03, 기관 안내·연결 SOL-005/006은 GUIDE-04 및 카드의 연락처 응답에 대응해요. 필터·조건 입력·응답 DTO는 별도로 정의해요.
+
 ## 파일 위치
 
 ```
