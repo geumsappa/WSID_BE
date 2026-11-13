@@ -1,7 +1,10 @@
 package com.wsid.ai;
 
+import com.wsid.ai.dto.OcrExtractResult;
+import com.wsid.ai.dto.OcrImage;
 import com.wsid.ai.dto.TrainingTurnRequest;
 import com.wsid.ai.dto.TrainingTurnSuggestion;
+import java.util.List;
 
 /**
  * AI 서비스 없이 개발하고 테스트하기 위한 가짜 구현.
@@ -45,5 +48,19 @@ public class FakeAiClient implements AiClient {
                 : !facts.containsKey("role") ? "물건을 사는 쪽이었나요, 파는 쪽이었나요?"
                 : !facts.containsKey("channel") ? "상대방과 어떻게 연락하셨나요?" : "그때 기억에 남는 일이 있나요?";
         return new com.wsid.ai.dto.DiscoveryResult(facts, question, facts.containsKey("activity") && facts.containsKey("role"));
+    }
+
+    @Override
+    public OcrExtractResult extractText(List<OcrImage> images) {
+        if (images == null || images.isEmpty()) {
+            throw new IllegalArgumentException("이미지가 한 장 이상 필요해요.");
+        }
+        // 화면에서 OCR 실패 흐름을 확인해 볼 수 있도록 둔 규칙 하나
+        boolean failRequested = images.stream()
+                .anyMatch(image -> image.filename() != null && image.filename().contains("ocr-fail"));
+        if (failRequested) {
+            return OcrExtractResult.failed();
+        }
+        return new OcrExtractResult("(가짜 OCR) 이미지 " + images.size() + "장에서 읽은 거래 관련 안내", true);
     }
 }
