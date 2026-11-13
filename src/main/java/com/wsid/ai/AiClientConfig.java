@@ -10,7 +10,7 @@ public class AiClientConfig {
     @Bean
     AiClient aiClient(AiProperties properties) {
         if ("http".equals(properties.mode())) {
-            return new HttpAiClient(properties);
+            return new HttpAiClient(properties, HttpAiClient.configuredBuilder(properties));
         }
         return new FakeAiClient();
     }

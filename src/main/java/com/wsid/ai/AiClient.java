@@ -16,6 +16,6 @@ public interface AiClient {
      */
     TrainingTurnSuggestion suggestTrainingTurn(TrainingTurnRequest request);
 
-    // TODO(SIM-001, SIM-002): 일상 대화에서 사실 추출과 다음 질문 제안
+    com.wsid.ai.dto.DiscoveryResult suggestDiscovery(com.wsid.ai.dto.DiscoveryRequest request);
     // TODO(SOL-003): 피해 설명에서 송금·정보 제공·앱 설치·연락 지속 여부 추출
 }

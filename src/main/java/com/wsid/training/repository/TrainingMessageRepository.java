@@ -9,6 +9,8 @@ public interface TrainingMessageRepository extends JpaRepository<TrainingMessage
 
     List<TrainingMessage> findByTrainingIdOrderBySequenceNoAsc(Long trainingId);
 
+    List<TrainingMessage> findByTrainingIdAndPhaseOrderBySequenceNoAsc(Long trainingId, com.wsid.training.domain.TrainingPhase phase);
+
     boolean existsByTrainingIdAndClientRequestId(Long trainingId, UUID clientRequestId);
 
     long countByTrainingId(Long trainingId);

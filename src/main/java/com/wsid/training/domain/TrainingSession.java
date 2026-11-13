@@ -109,7 +109,6 @@ public class TrainingSession {
             throw new IllegalStateException("가상 훈련은 일상 대화 단계에서만 시작할 수 있어요.");
         }
         this.fraudTypeCode = fraudTypeCode;
-        this.discoveryTurnCount++;
         this.phase = TrainingPhase.SIMULATION;
         this.simulationTurnCount = 1;
         touch(rules, now);
@@ -148,6 +147,31 @@ public class TrainingSession {
         }
         return new TurnOutcome(phase, false, input.replyUsable() ? TextSource.AI : TextSource.REVIEWED, false);
     }
+
+    /** 저장 트랜잭션 안에서 호출하고, 실패하면 횟수 변경도 함께 롤백해요. */
+    public DiscoveryOutcome applyDiscoveryAnswer(DiscoveryInput input, TrainingRules rules, Instant now) {
+        requireActive();
+        if (phase != TrainingPhase.DISCOVERY || discoveryStatus() != DiscoveryStatus.ASKING)
+            throw new IllegalStateException("상황 파악 답변을 받을 수 없는 상태예요.");
+        discoveryTurnCount++;
+        int asked = discoveryTurnCount - 1;
+        DiscoveryStatus next;
+        if (asked >= rules.discoveryMaxQuestions())
+            next = input.hasRequiredFacts() ? DiscoveryStatus.READY : DiscoveryStatus.DEFAULT_SCENARIO;
+        else if (discoveryTurnCount >= rules.discoveryMinAnswers() && input.aiSucceeded()
+                && input.aiSaysEnough() && input.hasRequiredFacts()) next = DiscoveryStatus.READY;
+        else next = DiscoveryStatus.ASKING;
+        flowStateJson = flowState().withDiscoveryStatus(next).toJson();
+        touch(rules, now);
+        return new DiscoveryOutcome(next, questionCount());
+    }
+
+    public DiscoveryStatus discoveryStatus() { return flowState().discoveryStatus(); }
+    public int questionCount() {
+        return Math.max(0, discoveryTurnCount - (discoveryStatus() == DiscoveryStatus.ASKING ? 0 : 1));
+    }
+    public ContextFacts getContextFacts() { return ContextFacts.fromJson(contextFacts); }
+    public void replaceContextFacts(ContextFacts facts) { contextFacts = facts.toJson(); }
 
     /** 마지막 활동 뒤 만료 시간이 지났는지. 만료된 세션은 더 진행하지 않아요. */
     public boolean isExpired(Instant now) {

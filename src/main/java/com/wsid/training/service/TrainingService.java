@@ -24,6 +24,13 @@ import com.wsid.training.dto.TurnResponse;
 import com.wsid.training.repository.TrainingMessageRepository;
 import com.wsid.training.repository.TrainingSessionRepository;
 import java.time.Instant;
+import java.util.List;
+import java.util.function.Function;
+import com.wsid.ai.dto.DiscoveryRequest;
+import com.wsid.ai.dto.DiscoveryResult;
+import com.wsid.ai.dto.DiscoveryTurn;
+import com.wsid.training.domain.*;
+import com.wsid.training.dto.DiscoveryResponse;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -91,55 +98,115 @@ public class TrainingService {
         return toState(load(sessionId, currentUser.id()));
     }
 
+    /** TODO(경로 전환): 프론트가 새 경로로 옮기면 이전용 변환을 제거해요. */
     public TurnResponse submitTurn(long sessionId, SubmitTurnRequest request) {
-        long userId = currentUser.id();
-
-        // 중복 처리: 이미 반영한 메시지가 다시 오면 두 번 반영하지 않아요.
-        // TODO: 409 대신 처음에 돌려줬던 응답을 그대로 다시 돌려주도록 바꿔요.
-        if (messages.existsByTrainingIdAndClientRequestId(sessionId, request.requestId())) {
-            throw new ApiException(ErrorCode.DUPLICATE_REQUEST);
-        }
-
-        TrainingSession snapshot = load(sessionId, userId);
-        requireCurrent(snapshot, request.stateVersion());
-
-        // TODO(개인정보 보호): 저장하기 전에 민감정보를 감지하면 삭제 후 다시 입력하도록 안내해요.
-
-        if (snapshot.getPhase() == TrainingPhase.DISCOVERY) {
-            return transaction.execute(tx -> finishDiscovery(sessionId, userId, request));
-        }
-
-        // AI 호출은 최대 수십 초가 걸려요. DB 커넥션을 잡지 않도록 트랜잭션 밖에서 해요.
-        TrainingTurnSuggestion suggestion = askAi(snapshot, request.message());
-
-        return transaction.execute(tx -> applyTurn(sessionId, userId, request, suggestion));
+        TrainingSession snapshot = load(sessionId, currentUser.id());
+        if (snapshot.getPhase() != TrainingPhase.DISCOVERY) return submitSimulationMessage(sessionId, request);
+        DiscoveryResponse response = submitDiscovery(sessionId, request);
+        return new TurnResponse(response.trainingId(), response.stateVersion(), response.phase(),
+                response.phase() == TrainingPhase.SIMULATION ? 1 : 0,
+                response.messages().getLast(), false, false);
     }
 
-    private TurnResponse finishDiscovery(long sessionId, long userId, SubmitTurnRequest request) {
-        // TODO(SIM-001, SIM-002): 답변에서 사실을 추출하고 후속 질문을 최대 5회 이어가요.
-        //   지금은 첫 답변을 받으면 바로 기본 유형의 가상 훈련으로 넘어가요.
-        TrainingSession session = load(sessionId, userId);
-        requireCurrent(session, request.stateVersion());
+    public TurnResponse submitSimulationMessage(long sessionId, SubmitTurnRequest request) {
+        long userId = currentUser.id();
+        TrainingSession snapshot = load(sessionId, userId);
+        requireRequest(snapshot, request);
+        requirePhase(snapshot, TrainingPhase.SIMULATION);
+        TrainingTurnSuggestion suggestion = askAi(snapshot, request.message());
+        return write(sessionId, userId, request, session -> {
+            requirePhase(session, TrainingPhase.SIMULATION);
+            return applyTurn(session, request, suggestion);
+        });
+    }
+
+    public DiscoveryResponse submitDiscovery(long sessionId, SubmitTurnRequest request) {
+        long userId = currentUser.id();
+        TrainingSession snapshot = load(sessionId, userId);
+        requireRequest(snapshot, request);
+        requireDiscovery(snapshot);
+        ContextFacts facts = snapshot.getContextFacts();
+        List<DiscoveryTurn> history = messages.findByTrainingIdAndPhaseOrderBySequenceNoAsc(sessionId, TrainingPhase.DISCOVERY)
+                .stream().map(m -> new DiscoveryTurn(m.getSender() == MessageSender.USER ? "user" : "assistant", m.getContent()))
+                .toList();
+        // TODO(개인정보 보호): 민감정보 감지·재입력 안내를 구현하기 전 운영 입력으로 사용하지 않아요.
+        DiscoveryResult result;
+        try {
+            result = aiClient.suggestDiscovery(new DiscoveryRequest(history, facts.values(), request.message(), request.requestId()));
+            if (result == null || !result.isValid()) throw new AiUnavailableException("AI-01 응답 형식 오류");
+        } catch (AiUnavailableException e) {
+            // 예외 메시지/원문/사실 값은 기록하지 않아요.
+            log.warn("AI-01 unavailable: trainingId={}, requestId={}", sessionId, request.requestId());
+            result = null;
+        }
+        DiscoveryResult accepted = result;
+        return write(sessionId, userId, request, session -> {
+            requireDiscovery(session);
+            ContextFacts merged = accepted == null ? session.getContextFacts() : session.getContextFacts().merge(accepted.facts());
+            DiscoveryOutcome outcome = session.applyDiscoveryAnswer(new DiscoveryInput(accepted != null,
+                    accepted != null && Boolean.TRUE.equals(accepted.canGenerateScenario()), merged.hasAll(rules.requiredFacts())), rules, Instant.now());
+            session.replaceContextFacts(merged);
+            int sequence = nextSequence(sessionId);
+            messages.save(TrainingMessage.fromUser(sessionId, TrainingPhase.DISCOVERY, sequence,
+                    request.message(), null, request.requestId(), Instant.now()));
+            List<MessageDto> response;
+            if (outcome.status() == DiscoveryStatus.ASKING) {
+                String question = accepted == null ? DiscoveryQuestions.fallbackFor(merged) : accepted.nextQuestion();
+                messages.save(TrainingMessage.fromAi(sessionId, TrainingPhase.DISCOVERY, sequence + 1, question, Instant.now()));
+                response = List.of(accepted == null ? MessageDto.reviewed(MessageSender.AI, question) : MessageDto.fromAi(question));
+            } else {
+                String notice = outcome.status() == DiscoveryStatus.DEFAULT_SCENARIO
+                        ? ReviewedTexts.DISCOVERY_DEFAULT : ReviewedTexts.DISCOVERY_READY;
+                response = startSimulation(session, sequence + 1, notice);
+            }
+            sessions.saveAndFlush(session);
+            return new DiscoveryResponse(sessionId, session.getStateVersion(), session.getPhase(),
+                    session.discoveryStatus(), session.questionCount(), accepted == null, response);
+        });
+    }
+
+    private List<MessageDto> startSimulation(TrainingSession session, int sequence, String notice) {
         Instant now = Instant.now();
-        int sequence = nextSequence(sessionId);
-
-        messages.save(TrainingMessage.fromUser(
-                sessionId, session.getPhase(), sequence, request.message(), null, request.requestId(), now));
-
+        messages.save(TrainingMessage.fromSystem(session.getId(), TrainingPhase.DISCOVERY, sequence, notice, now));
+        // TODO(TRN-06, TRN-07): 개인화 시나리오 생성과 시작 API로 교체할 임시 자동 시작이에요.
         session.beginSimulation(DEFAULT_FRAUD_TYPE_CODE, rules, now);
-        messages.save(TrainingMessage.fromAi(
-                sessionId, session.getPhase(), sequence + 1, ReviewedTexts.SCENARIO_OPENING, now));
-        sessions.saveAndFlush(session);
+        messages.save(TrainingMessage.fromAi(session.getId(), TrainingPhase.SIMULATION, sequence + 1, ReviewedTexts.SCENARIO_OPENING, now));
+        return List.of(MessageDto.reviewed(MessageSender.SYSTEM, notice), MessageDto.reviewed(MessageSender.AI, ReviewedTexts.SCENARIO_OPENING));
+    }
 
-        MessageDto opening = MessageDto.reviewed(MessageSender.AI, ReviewedTexts.SCENARIO_OPENING);
-        return TurnResponse.of(session, opening, false, false);
+    private <T> T write(long id, long userId, SubmitTurnRequest request, Function<TrainingSession, T> action) {
+        try {
+            return transaction.execute(tx -> {
+                TrainingSession session = load(id, userId);
+                requireRequest(session, request);
+                return action.apply(session);
+            });
+        } catch (org.springframework.orm.ObjectOptimisticLockingFailureException e) {
+            // 트랜잭션이 롤백된 뒤 승리한 동일 요청을 확인해요.
+            if (messages.existsByTrainingIdAndClientRequestId(id, request.requestId())) throw new ApiException(ErrorCode.DUPLICATE_REQUEST);
+            throw e;
+        } catch (ApiException e) {
+            if (e.errorCode() == ErrorCode.SESSION_VERSION_CONFLICT && messages.existsByTrainingIdAndClientRequestId(id, request.requestId()))
+                throw new ApiException(ErrorCode.DUPLICATE_REQUEST);
+            throw e;
+        }
+    }
+
+    private void requireRequest(TrainingSession session, SubmitTurnRequest request) {
+        if (messages.existsByTrainingIdAndClientRequestId(session.getId(), request.requestId())) throw new ApiException(ErrorCode.DUPLICATE_REQUEST);
+        requireCurrent(session, request.stateVersion());
+    }
+    private void requirePhase(TrainingSession session, TrainingPhase phase) {
+        if (session.getPhase() != phase) throw new ApiException(ErrorCode.WRONG_PHASE);
+    }
+    private void requireDiscovery(TrainingSession session) {
+        requirePhase(session, TrainingPhase.DISCOVERY);
+        if (session.discoveryStatus() != DiscoveryStatus.ASKING) throw new ApiException(ErrorCode.DISCOVERY_COMPLETED);
     }
 
     private TurnResponse applyTurn(
-            long sessionId, long userId, SubmitTurnRequest request, TrainingTurnSuggestion suggestion) {
-        // AI를 기다리는 사이에 다른 요청이 먼저 반영됐을 수 있어서 다시 읽고 버전을 확인해요.
-        TrainingSession session = load(sessionId, userId);
-        requireCurrent(session, request.stateVersion());
+            TrainingSession session, SubmitTurnRequest request, TrainingTurnSuggestion suggestion) {
+        long sessionId = session.getId();
         Instant now = Instant.now();
         int sequence = nextSequence(sessionId);
 

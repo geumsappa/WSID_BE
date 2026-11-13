@@ -16,7 +16,7 @@ import org.junit.jupiter.api.Test;
  */
 class TrainingSessionTest {
 
-    private static final TrainingRules RULES = new TrainingRules(12, 15, Duration.ofHours(24));
+    private static final TrainingRules RULES = new TrainingRules(12, 15, Duration.ofHours(24), 3, 5, 3, java.util.List.of("activity", "role"));
     private static final Instant NOW = Instant.parse("2026-11-12T06:00:00Z");
     private static final long USER_ID = 1L;
 
@@ -53,7 +53,7 @@ class TrainingSessionTest {
         session.beginSimulation("USED_GOODS_TRADE", RULES, NOW);
         assertEquals(TrainingPhase.SIMULATION, session.getPhase());
         assertEquals(1, session.getSimulationTurnCount());
-        assertEquals(1, session.getDiscoveryTurnCount());
+        assertEquals(0, session.getDiscoveryTurnCount());
         assertEquals("USED_GOODS_TRADE", session.getFraudTypeCode());
     }
 

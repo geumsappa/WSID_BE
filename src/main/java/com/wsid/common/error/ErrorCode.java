@@ -6,6 +6,8 @@ import org.springframework.http.HttpStatus;
 public enum ErrorCode {
 
     INVALID_REQUEST(HttpStatus.BAD_REQUEST, "요청 형식이 올바르지 않아요."),
+    DISCOVERY_COMPLETED(HttpStatus.CONFLICT, "상황 파악이 이미 끝났어요."),
+    WRONG_PHASE(HttpStatus.CONFLICT, "현재 단계에서 처리할 수 없는 요청이에요."),
     LOGIN_REQUIRED(HttpStatus.UNAUTHORIZED, "로그인이 필요해요."),
     /** 없는 세션과 다른 사람의 세션을 구분하지 않고 같은 404로 응답해요. */
     SESSION_NOT_FOUND(HttpStatus.NOT_FOUND, "세션을 찾을 수 없어요."),

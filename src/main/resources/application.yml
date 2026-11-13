@@ -26,3 +26,7 @@ wsid:
     key-scene-deadline-turn: 12
     max-simulation-turns: 15
     session-ttl: 24h           # 무활동 만료 시간 (초안, 팀 결정)
+    discovery-base-questions: 3
+    discovery-max-questions: 5
+    discovery-min-answers: 3
+    discovery-required-facts: [activity, role]

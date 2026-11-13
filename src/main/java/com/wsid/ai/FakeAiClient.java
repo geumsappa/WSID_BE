@@ -24,4 +24,26 @@ public class FakeAiClient implements AiClient {
                 true,
                 false);
     }
+    /** 개발용 결정적 응답. [AI_FAIL]은 실패 흐름 검증에만 사용해요. */
+    @Override
+    public com.wsid.ai.dto.DiscoveryResult suggestDiscovery(com.wsid.ai.dto.DiscoveryRequest request) {
+        if (request.currentInput().contains("[AI_FAIL]")) throw new AiUnavailableException("가짜 AI 실패");
+        java.util.Map<String, Object> facts = new java.util.LinkedHashMap<>(request.knownFacts());
+        java.util.List<String> inputs = new java.util.ArrayList<>();
+        request.conversation().stream().filter(t -> "user".equals(t.role())).forEach(t -> inputs.add(t.content()));
+        inputs.add(request.currentInput());
+        for (String text : inputs) {
+            if (text.contains("중고거래")) facts.put("activity", "중고거래");
+            if (text.contains("판매") || text.contains("팔았") || text.contains("파는")) facts.put("role", "판매자");
+            if (text.contains("구매") || text.contains("샀") || text.contains("사는")) facts.put("role", "구매자");
+            if (text.contains("문자")) facts.put("channel", "문자");
+            if (text.contains("전화")) facts.put("channel", "전화");
+            if (text.contains("채팅")) facts.put("channel", "앱 채팅");
+            if (text.contains("노트북")) facts.put("item", "노트북");
+        }
+        String question = !facts.containsKey("activity") ? "최근에 어떤 일을 하셨나요?"
+                : !facts.containsKey("role") ? "물건을 사는 쪽이었나요, 파는 쪽이었나요?"
+                : !facts.containsKey("channel") ? "상대방과 어떻게 연락하셨나요?" : "그때 기억에 남는 일이 있나요?";
+        return new com.wsid.ai.dto.DiscoveryResult(facts, question, facts.containsKey("activity") && facts.containsKey("role"));
+    }
 }
