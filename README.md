@@ -21,11 +21,13 @@ React ──HTTPS──▶ Spring Boot ──내부 HTTP──▶ FastAPI ──
 
 ## 개발 기준
 
+개발 문서는 [docs 목차](docs/README.md)에서 찾아요. AI-01의 DB·FastAPI 연결은 [상호작용 설계](docs/ai-01-integration.md)에 정리했어요.
+
 경로·메서드·API ID는 [API 기준과 구현 상태](docs/api.md)를 따라요. 기능 설명은 엑셀 v0.3을 참고하고, 이후 확정한 회원 전용 훈련·비회원 피해 대응·턴별 피드백 제외 정책을 우선해요. 기능별 README의 API 표는 목표 계약이며 구현 완료를 뜻하지 않아요.
 
 로그인 세션은 사용자 확인용, 훈련·상담 세션은 DB에 저장할 진행 단위예요. URL에 `sessions`가 없어도 로그인 세션 인증을 사용할 수 있어요. 같은 API의 `{id}`에 다른 값을 넣어 여러 훈련·상담을 구분해요.
 
-상황 파악은 여러 번 대화하며 사실을 누적한 뒤 개인화 시나리오를 생성하는 목표 흐름이에요. 현재 첫 답변 뒤 바로 훈련으로 전환하는 동작은 임시 구현이에요.
+상황 파악은 여러 번 대화하며 사실을 누적한 뒤 개인화 시나리오를 생성하는 목표 흐름이에요. 현재 AI-01은 여러 답변의 사실 누적·횟수 판정을 구현했으며, 준비 완료 후 고정 유형으로 자동 시작하는 부분은 TRN-06·07 전의 임시 처리예요.
 
 ## 실행
 
@@ -38,19 +40,19 @@ docker compose up -d     # 로컬 PostgreSQL
 프로필을 지정하지 않으면 `local`로 켜져요. `local`에서는 로그인 없이 개발용 계정(`dev@wsid.local`)으로 동작하고,
 AI도 가짜 구현(`wsid.ai.mode=fake`)이라 AI 서비스 없이 훈련 흐름이 끝까지 돌아요.
 
-아래 요청은 **현재 임시 구현**을 실행하는 예제예요. 목표 API는 `/api/trainings`이고, 코드 경로는 아직 전환하지 않았어요.
+아래는 local 개발 계정·Fake AI 실행 예제예요. 답변 요청마다 새 requestId와 직전 응답의 stateVersion을 사용해요. 상황 파악 준비 후 안내·첫 대사를 받고, 다음 답변은 `/api/trainings/{id}/messages`로 보내요. 실제 세션 로그인은 미구현이에요.
 
 ```bash
 # 1. 훈련 시작 → 응답의 sessionId, stateVersion을 다음 요청에 써요
-curl -X POST localhost:8080/api/training/sessions
+curl -X POST localhost:8080/api/trainings
 
 # 2. 답변 전송 (requestId는 메시지마다 새 UUID)
-curl -X POST localhost:8080/api/training/sessions/1/turns \
+curl -X POST localhost:8080/api/trainings/1/discovery/messages \
   -H 'Content-Type: application/json' \
   -d '{"requestId":"11111111-1111-1111-1111-111111111111","stateVersion":0,"message":"동네 카페에 갔어요"}'
 
 # 3. 이어하기
-curl localhost:8080/api/training/sessions/active
+curl localhost:8080/api/trainings/active
 ```
 
 AI 서비스에 연결할 때는 `AI_MODE=http AI_BASE_URL=http://localhost:8000 ./gradlew bootRun`으로 실행해요.
@@ -97,7 +99,7 @@ src/main/resources
 | 홈 (이어하기) | - | [training](src/main/java/com/wsid/training/README.md) | training_sessions | 구현 |
 | 회원 | AUTH-001~004 | [auth](src/main/java/com/wsid/auth/README.md) | users | 엔티티만 |
 | 시뮬레이션 시작, 훈련 재개 | SIM-001 | training | training_sessions, training_messages | 구현 |
-| 상황 대화 | SIM-001, 002, 004 | training + [ai](src/main/java/com/wsid/ai/README.md) | training_sessions.context_facts | 임시 (첫 답변 뒤 바로 훈련) |
+| 상황 대화 | SIM-001, 002, 004 | training + [ai](src/main/java/com/wsid/ai/README.md) | training_sessions.context_facts | 사실 누적·횟수 판정 구현, 개인화 생성은 미구현 |
 | 가상 훈련 | SIM-005~009, 011, 014 | training + ai | training_sessions, training_messages | 턴 규칙 구현, 나머지 미구현 |
 | 결과 리포트, 마이페이지 | SIM-010, RPT-001~004 | [report](src/main/java/com/wsid/report/README.md) | training_reports | 엔티티만 |
 | 피해 대응 진입·대화·결과 | SOL-003, 004, 007 | [solution](src/main/java/com/wsid/solution/README.md) | solution_sessions, solution_messages | 엔티티만 |

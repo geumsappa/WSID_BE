@@ -28,7 +28,7 @@
 
 `SecurityConfig`의 현재 `/api/training/**`, `/api/solution/**`, `/api/content/**` 규칙은 이전 경로와 개발 편의를 위한 설정이에요. 새 `/api/trainings/**`, `/api/reports/**`, `/api/solutions/**`, `/api/guides/**`, AUTH 세부 경로에 맞춰 권한을 정렬하고 쿠키 기반 인증의 CSRF 정책을 구현해야 해요.
 
-현재 `GlobalExceptionHandler`는 API 예외·Bean Validation·낙관적 잠금 충돌을 처리해요. JSON 파싱 오류·보안 계층 오류 등은 공통 형식이 보장되지 않으므로 보완해야 해요.
+현재 `GlobalExceptionHandler`는 API 예외·Bean Validation·낙관적 잠금 충돌을 처리해요. JSON 파싱 오류도 INVALID_REQUEST로 처리하고, 요청·순서 유니크 제약 위반은 409로 구분해요. 보안 계층 오류 등은 공통 형식이 보장되지 않으므로 보완해야 해요.
 
 ## 오류를 추가하는 방법
 

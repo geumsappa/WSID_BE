@@ -29,7 +29,7 @@ URL의 `sessions`는 리소스 이름이에요. 로그인 세션 기능을 켜�
 
 | API ID | 메서드 | 경로 | 인증 | 현재 구현 |
 |---|---|---|---|---|
-| AI-01 | POST | `/internal/ai/discovery/next` | 내부 | 미구현; AiClient TODO |
+| AI-01 | POST | `/internal/ai/discovery/next` | 내부 | fake 및 HTTP 어댑터·응답 계약 테스트 구현; 실제 FastAPI 통합 검증은 미완료 |
 | AI-02 | POST | `/internal/ai/ocr/extract` | 내부 | 미구현; 문서에서는 I1에 포함 |
 | AI-03 | POST | `/internal/ai/scenarios/generate` | 내부 | 미구현; 고정 유형·상수 문구로 대체 |
 | AI-04 | POST | `/internal/ai/simulation/reply` | 내부 | 어댑터 구현; 실제 호출은 /internal/training/turn으로 불일치, 맥락 필드 TODO |
@@ -82,14 +82,14 @@ URL의 `sessions`는 리소스 이름이에요. 로그인 세션 기능을 켜�
 
 | API ID | 메서드 | 경로 | 인증 | 현재 구현 |
 |---|---|---|---|---|
-| TRN-01 | POST | `/api/trainings` | 필요 | 기존 POST /api/training/sessions에서 동작; 경로 불일치 |
-| TRN-02 | GET | `/api/trainings/active` | 필요 | 기존 GET /api/training/sessions/active에서 동작; 경로 불일치 |
-| TRN-03 | GET | `/api/trainings/{id}` | 필요 | 기존 GET /api/training/sessions/{id}에서 동작; 선택지 복원 없음 |
-| TRN-04 | POST | `/api/trainings/{id}/discovery/messages` | 필요 | 기존 /turns가 처리; 첫 답변 뒤 즉시 훈련으로 전이, 후속 질문·사실 추출 없음 |
+| TRN-01 | POST | `/api/trainings` | 필요 | 새 경로 구현; local 개발 계정 기준 DISCOVERY 생성 |
+| TRN-02 | GET | `/api/trainings/active` | 필요 | 새 경로 구현; 소유자 조건 활성 훈련 조회 |
+| TRN-03 | GET | `/api/trainings/{id}` | 필요 | 새 경로 구현; 대화·상황 파악 상태·질문 수 복원, 선택지 미구현 |
+| TRN-04 | POST | `/api/trainings/{id}/discovery/messages` | 필요 | 여러 답변의 사실 누적·상태 판정·대체 질문 구현; 실제 회원 인증은 미구현 |
 | TRN-05 | POST | `/api/trainings/{id}/discovery/images` | 필요 | 미구현; 파일 제한 검증·임시 보관·삭제 구현 필요 |
 | TRN-06 | POST | `/api/trainings/{id}/scenario` | 필요 | 별도 API 없음; 기본 유형 고정 |
 | TRN-07 | POST | `/api/trainings/{id}/start` | 필요 | 별도 API 없음; finishDiscovery가 beginSimulation 직접 호출 |
-| TRN-08 | POST | `/api/trainings/{id}/messages` | 필요 | 기존 /api/training/sessions/{id}/turns에서 동작; 경로·AI 맥락 불일치 |
+| TRN-08 | POST | `/api/trainings/{id}/messages` | 필요 | 새 경로·단계 검사 구현; 기존 AI-04 HTTP 경로·맥락 TODO 유지 |
 | TRN-09 | GET | `/api/trainings/{id}/mock-page` | 필요 | 템플릿 코드 컬럼만; 응답 DTO·조회 없음 |
 | TRN-10 | POST | `/api/trainings/{id}/actions` | 필요 | InputKind.ACTION·JSON 컬럼만; API·동작 없음 |
 | TRN-11 | POST | `/api/trainings/{id}/finish` | 필요 | 자동 종료만 있음; 직접 종료·리포트 생성·API 없음 |
