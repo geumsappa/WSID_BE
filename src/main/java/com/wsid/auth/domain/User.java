@@ -57,6 +57,12 @@ public class User {
         return user;
     }
 
+    public static User signUp(String email, String passwordHash, Gender gender, Instant now) {
+        User user = signUp(email, passwordHash, now);
+        user.gender = gender == null ? null : gender.name();
+        return user;
+    }
+
     /** 로컬 개발용 계정. 비밀번호 해시 자리에 해시가 아닌 값을 넣어 로그인할 수 없게 해요. */
     public static User localDev(String email, Instant now) {
         User user = signUp(email, "!", now);
@@ -90,4 +96,10 @@ public class User {
     public UserStatus getStatus() {
         return status;
     }
+
+    public String getGender() { return gender; }
+
+    public Instant getEmailVerifiedAt() { return emailVerifiedAt; }
+
+    public Instant getCreatedAt() { return createdAt; }
 }
