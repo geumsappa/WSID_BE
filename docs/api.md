@@ -65,20 +65,24 @@ AUTH-07은 `data`에 `id`, `email`, `gender`, `status`, `createdAt`을 반환해
 
 | API ID | 메서드 | 경로 | 인증 | 현재 구현 |
 |---|---|---|---|---|
-| GUIDE-01 | GET | `/api/guides/fraud-types` | 불필요 | content 문서 계획; 로더·API 없음, 현재 보안 규칙에 공개 경로 등록 필요 |
-| GUIDE-02 | GET | `/api/guides/fraud-types/{code}` | 불필요 | content 문서 계획; 로더·API 없음 |
-| GUIDE-03 | GET | `/api/guides/response-cards` | 불필요 | 카드 형식 README만; 적용 조건의 요청·응답 정의 필요 |
-| GUIDE-04 | GET | `/api/guides/institutions` | 불필요 | content 문서 계획; API 없음 |
+| GUIDE-01 | GET | `/api/guides/fraud-types` | 불필요 | 유형 목록 |
+| GUIDE-02 | GET | `/api/guides/fraud-types/{code}` | 불필요 | 유형 상세, 미공개·미등록 코드는 404 `GUIDE_NOT_FOUND` |
+| GUIDE-03 | GET | `/api/guides/response-cards` | 불필요 | `codes` 쉼표 구분 필터. 생략하면 전체 공개 카드 |
+| GUIDE-04 | GET | `/api/guides/institutions` | 불필요 | 기관 목록 |
+
+가이드는 `content/guides.yml`에서 팀 검토 완료 항목을 읽어요. 승인된 데이터가 등록되기 전에는 빈 목록을 반환해요.
 
 ## 리포트
 
 | API ID | 메서드 | 경로 | 인증 | 현재 구현 |
 |---|---|---|---|---|
-| RPT-01 | GET | `/api/trainings/{id}/report` | 필요 | 엔티티·repository만; 목표 경로의 서비스·API 미구현 |
-| RPT-02 | POST | `/api/reports/{id}/save` | 필요 | saveToMyReports 엔티티 메서드만; 원문 삭제·API 없음 |
-| RPT-03 | GET | `/api/reports` | 필요 | repository TODO; API 없음 |
-| RPT-04 | GET | `/api/reports/{id}` | 필요 | 문서 계획; 소유권 조회 서비스·API 없음 |
-| RPT-05 | GET | `/api/reports/{id}/pdf` | 필요 | 문서 계획; PDF 생성·API 없음 |
+| RPT-01 | GET | `/api/trainings/{id}/report` | 필요 | 본인 훈련의 리포트 조회. 저장 전에도 가능 |
+| RPT-02 | POST | `/api/reports/{id}/save` | 필요 | CSRF 헤더 필요. 저장과 원문 삭제를 한 트랜잭션으로 처리 |
+| RPT-03 | GET | `/api/reports` | 필요 | 본인이 저장한 리포트를 완료 최신순으로 조회. `size` 1~100, 기본 10 |
+| RPT-04 | GET | `/api/reports/{id}` | 필요 | 본인이 저장한 리포트 상세 조회 |
+| RPT-05 | GET | `/api/reports/{id}/pdf` | 필요 | 본인 리포트의 PDF 바이너리 다운로드 |
+
+현재 훈련이 완료되면 기본 규칙으로 평가를 만들어요. AI-05 연동 및 명세의 훈련 종료 API(TRN-11)는 후속 작업이에요. RPT-03의 노션 오류 예시 `TOKEN_EXPIRED`는 서버 세션 정책에 맞춰 `401 LOGIN_REQUIRED`로 보완할 필요가 있어요. 다음 페이지는 `nextCursor` 값을 그대로 보내요.
 
 ## 피해 대응
 

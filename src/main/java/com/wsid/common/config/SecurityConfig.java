@@ -23,6 +23,7 @@ public class SecurityConfig {
             HttpSessionSecurityContextRepository securityContextRepository) throws Exception {
         var logout = PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/auth/logout");
         var training = PathPatternRequestMatcher.withDefaults().matcher("/api/training/**");
+        var saveReport = PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/reports/{id}/save");
         http
             .securityContext(context -> context.securityContextRepository(securityContextRepository))
             // 비로그인 요청의 401은 인증 API와 훈련 서비스가 반환해요.
@@ -30,10 +31,13 @@ public class SecurityConfig {
                 var authentication = SecurityContextHolder.getContext().getAuthentication();
                 return authentication != null && authentication.isAuthenticated()
                         && authentication.getPrincipal() instanceof Long
-                        && (logout.matches(request)
+                        && (logout.matches(request) || saveReport.matches(request)
                             || (training.matches(request) && CsrfFilter.DEFAULT_CSRF_MATCHER.matches(request)));
             }))
             .authorizeHttpRequests(auth -> auth
+                .requestMatchers(HttpMethod.GET, "/api/guides/**", "/api/trainings/{id}/report").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/reports", "/api/reports/{id}", "/api/reports/{id}/pdf").permitAll()
+                .requestMatchers(saveReport).permitAll()
                 .requestMatchers("/api/auth/**", "/api/users/me", "/api/training/**", "/api/solution/**",
                         "/api/content/**").permitAll()
                 .anyRequest().authenticated());

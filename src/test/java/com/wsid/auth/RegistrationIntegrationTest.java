@@ -21,6 +21,8 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
+import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.text.PDFTextStripper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -65,6 +67,8 @@ class RegistrationIntegrationTest {
     static void properties(DynamicPropertyRegistry registry) {
         registry.add("wsid.auth.redis-namespace", () -> NAMESPACE);
         registry.add("spring.session.data.redis.namespace", () -> NAMESPACE + ":login");
+        registry.add("wsid.guides.catalog", () -> "classpath:guide-fixture.yml");
+        registry.add("wsid.ai.mode", () -> "fake");
         registry.add("wsid.auth.resend-interval", () -> "60s");
         registry.add("wsid.auth.max-sends", () -> 3);
         registry.add("wsid.auth.max-attempts-per-code", () -> 3);
@@ -214,6 +218,112 @@ class RegistrationIntegrationTest {
         var login = post("/login", Map.of("email", email, "password", PASSWORD));
         assertEquals(200, login.statusCode(), login.body());
         return login.headers().firstValue("Set-Cookie").orElseThrow().split(";", 2)[0];
+    }
+
+    @Test
+    void guidesExposeOnlyReviewedEntriesWithoutLogin() throws Exception {
+        var types = data(getWithCookie("/api/guides/fraud-types", null), 200);
+        assertEquals(1, types.size());
+        assertEquals("TEST_TYPE", types.get(0).path("code").asText());
+        assertFalse(types.get(0).has("references"));
+        assertTrue(data(getWithCookie("/api/guides/fraud-types/TEST_TYPE", null), 200).has("references"));
+        assertError(getWithCookie("/api/guides/fraud-types/HIDDEN", null), 404, "GUIDE_NOT_FOUND");
+        assertEquals(1, data(getWithCookie("/api/guides/response-cards?codes=TEST_CARD,OTHER", null), 200).size());
+        assertTrue(data(getWithCookie("/api/guides/response-cards?codes=OTHER", null), 200).isEmpty());
+        assertEquals("TEST_ORG", data(getWithCookie("/api/guides/institutions", null), 200).get(0).path("code").asText());
+    }
+
+    @Test
+    void reportsKeepOwnershipAndRemoveRawMessagesWhenSaved() throws Exception {
+        String owner = activeCookie(address());
+        String other = activeCookie(address());
+        var token = data(getWithCookie("/api/auth/csrf", owner), 200);
+        var trainingIds = new ArrayList<Long>();
+        String rawText = "테스트용 훈련 답변";
+        try {
+            long first = completeTraining(owner, token, rawText, trainingIds);
+            String firstPath = "/api/trainings/" + first + "/report";
+            var result = data(getWithCookie(firstPath, owner), 200);
+            assertEquals("SECONDHAND_TRADE", result.path("fraudTypeCode").asText());
+            assertFalse(result.path("saved").asBoolean());
+            assertFalse(result.toString().contains(rawText));
+            assertError(getWithCookie(firstPath, other), 404, "REPORT_NOT_FOUND");
+            assertError(getWithCookie(firstPath, null), 401, "LOGIN_REQUIRED");
+
+            String firstReport = "/api/reports/" + result.path("reportId").asLong();
+            assertError(getWithCookie(firstReport, owner), 404, "REPORT_NOT_FOUND");
+            verifyReportPdf(firstReport, owner, rawText);
+            assertError(getWithCookie(firstReport + "/pdf", other), 404, "REPORT_NOT_FOUND");
+            assertEquals(403, client.send(request(firstReport + "/save", owner)
+                    .POST(HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.ofString()).statusCode());
+            jdbc.update("update training_sessions set flow_state_json = jsonb_build_object('copy', cast(? as text)) where id = ?",
+                    rawText, first);
+            var saved = data(reportPost(firstReport + "/save", owner, token, null), 200);
+            assertEquals(saved.path("savedAt"), data(reportPost(firstReport + "/save", owner, token, null), 200).path("savedAt"));
+            assertEquals(0, jdbc.queryForObject("select count(*) from training_messages where training_id = ?", Integer.class, first));
+            assertFalse(jdbc.queryForObject("select flow_state_json::text from training_sessions where id = ?",
+                    String.class, first).contains(rawText));
+            assertTrue(data(getWithCookie(firstReport, owner), 200).path("saved").asBoolean());
+
+            long second = completeTraining(owner, token, rawText, trainingIds);
+            long secondReport = data(getWithCookie("/api/trainings/" + second + "/report", owner), 200).path("reportId").asLong();
+            data(reportPost("/api/reports/" + secondReport + "/save", owner, token, null), 200);
+            var page = data(getWithCookie("/api/reports?size=1", owner), 200);
+            assertTrue(page.path("hasNext").asBoolean());
+            assertEquals(secondReport, page.path("items").get(0).path("reportId").asLong());
+            var next = data(getWithCookie("/api/reports?size=1&cursor=" + page.path("nextCursor").asText(), owner), 200);
+            assertFalse(next.path("hasNext").asBoolean());
+            assertEquals(result.path("reportId"), next.path("items").get(0).path("reportId"));
+            assertTrue(data(getWithCookie("/api/reports", other), 200).path("items").isEmpty());
+        } finally {
+            for (long id : trainingIds) {
+                jdbc.update("delete from training_reports where training_id = ?", id);
+                jdbc.update("delete from training_messages where training_id = ?", id);
+                jdbc.update("delete from training_sessions where id = ?", id);
+            }
+        }
+    }
+
+    private long completeTraining(String cookie, JsonNode token, String rawText, List<Long> createdIds) throws Exception {
+        String path = "/api/training/sessions";
+        var started = data(reportPost(path, cookie, token, null), 201);
+        long id = started.path("sessionId").asLong();
+        createdIds.add(id);
+        String turns = path + "/" + id + "/turns";
+        var discovery = data(reportPost(turns, cookie, token, Map.of("stateVersion", started.path("stateVersion").asInt(),
+                "requestId", UUID.randomUUID(), "message", rawText)), 200);
+        var ended = data(reportPost(turns, cookie, token, Map.of("stateVersion", discovery.path("stateVersion").asInt(),
+                "requestId", UUID.randomUUID(), "message", "연락을 끊고 직접 확인할게요")), 200);
+        assertTrue(ended.path("finished").asBoolean());
+        return id;
+    }
+
+    private void verifyReportPdf(String path, String cookie, String rawText) throws Exception {
+        var response = client.send(request(path + "/pdf", cookie).GET().build(), HttpResponse.BodyHandlers.ofByteArray());
+        assertEquals(200, response.statusCode());
+        assertEquals("application/pdf", response.headers().firstValue("Content-Type").orElseThrow());
+        assertTrue(response.headers().firstValue("Content-Disposition").orElseThrow().contains("training-report.pdf"));
+        try (var pdf = Loader.loadPDF(response.body())) {
+            String extracted = new PDFTextStripper().getText(pdf);
+            assertTrue(extracted.contains("종합 평가"));
+            assertFalse(extracted.contains(rawText));
+        }
+    }
+
+    private HttpResponse<String> reportPost(String path, String cookie, JsonNode token, Object body) throws Exception {
+        var request = request(path, cookie).header(token.path("headerName").asText(), token.path("token").asText());
+        var publisher = body == null ? HttpRequest.BodyPublishers.noBody()
+                : HttpRequest.BodyPublishers.ofString(json.writeValueAsString(body));
+        if (body != null) {
+            request.header("Content-Type", "application/json");
+        }
+        return client.send(request.POST(publisher).build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private JsonNode data(HttpResponse<String> response, int status) {
+        assertEquals(status, response.statusCode(), response.body());
+        var payload = json.readTree(response.body());
+        return payload.has("data") ? payload.path("data") : payload;
     }
 
     private HttpResponse<String> session(String cookie) throws Exception {

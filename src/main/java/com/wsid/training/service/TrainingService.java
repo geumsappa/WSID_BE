@@ -8,6 +8,7 @@ import com.wsid.auth.CurrentUser;
 import com.wsid.common.domain.MessageSender;
 import com.wsid.common.error.ApiException;
 import com.wsid.common.error.ErrorCode;
+import com.wsid.report.service.ReportService;
 import com.wsid.training.domain.TextSource;
 import com.wsid.training.domain.TrainingMessage;
 import com.wsid.training.domain.TrainingPhase;
@@ -49,6 +50,7 @@ public class TrainingService {
     private final CurrentUser currentUser;
     private final TransactionTemplate transaction;
     private final TrainingRules rules;
+    private final ReportService reports;
 
     public TrainingService(
             TrainingSessionRepository sessions,
@@ -56,13 +58,15 @@ public class TrainingService {
             AiClient aiClient,
             CurrentUser currentUser,
             PlatformTransactionManager transactionManager,
-            TrainingProperties properties) {
+            TrainingProperties properties,
+            ReportService reports) {
         this.sessions = sessions;
         this.messages = messages;
         this.aiClient = aiClient;
         this.currentUser = currentUser;
         this.transaction = new TransactionTemplate(transactionManager);
         this.rules = properties.toRules();
+        this.reports = reports;
     }
 
     /** SIM-001: 새 훈련을 만들어 소유자를 연결하고, 준비된 첫 질문을 돌려줘요. */
@@ -158,7 +162,9 @@ public class TrainingService {
         messages.save(saved);
         sessions.saveAndFlush(session);
 
-        // TODO(SIM-010): outcome.finished()이면 평가 결과로 리포트를 만들어 저장해요.
+        if (outcome.finished()) {
+            reports.recordCompletion(session, action, now);
+        }
         return TurnResponse.of(session, reply, outcome.keyScene(), outcome.finished());
     }
 

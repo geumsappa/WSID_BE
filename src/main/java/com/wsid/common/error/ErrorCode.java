@@ -13,6 +13,8 @@ public enum ErrorCode {
     MAIL_SERVICE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "인증 메일을 발송하지 못했어요. 잠시 후 재발송해 주세요."),
     AUTH_SERVICE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "인증 서비스를 사용할 수 없어요. 잠시 후 다시 시도해 주세요."),
     LOGIN_REQUIRED(HttpStatus.UNAUTHORIZED, "로그인이 필요해요."),
+    GUIDE_NOT_FOUND(HttpStatus.NOT_FOUND, "가이드를 찾을 수 없어요."),
+    REPORT_NOT_FOUND(HttpStatus.NOT_FOUND, "리포트를 찾을 수 없어요."),
     INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "이메일 또는 비밀번호를 확인해 주세요."),
     EMAIL_NOT_VERIFIED(HttpStatus.FORBIDDEN, "이메일 인증을 먼저 완료해 주세요."),
     /** 없는 세션과 다른 사람의 세션을 구분하지 않고 같은 404로 응답해요. */

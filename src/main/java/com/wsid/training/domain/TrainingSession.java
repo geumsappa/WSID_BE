@@ -170,6 +170,15 @@ public class TrainingSession {
         return new TurnOutcome(phase, false, TextSource.REVIEWED, true);
     }
 
+    public void clearReportConversation() {
+        if (status != TrainingStatus.COMPLETED) {
+            throw new IllegalStateException("완료된 훈련만 대화 데이터를 지울 수 있어요.");
+        }
+        flowStateJson = FlowState.initial().toJson();
+        contextFacts = null;
+        scenarioJson = null;
+    }
+
     private void requireActive() {
         if (status != TrainingStatus.ACTIVE) {
             throw new IllegalStateException("진행 중인 훈련이 아니에요.");
