@@ -93,6 +93,26 @@ class RegistrationIntegrationTest {
     }
 
     @Test
+    void corsPreflightAllowsLocalFrontendCredentialsAndRejectsOtherOrigins() throws Exception {
+        var allowed = loginPreflight("http://localhost:8443");
+        assertEquals(200, allowed.statusCode());
+        assertEquals("http://localhost:8443", allowed.headers().firstValue("Access-Control-Allow-Origin").orElseThrow());
+        assertEquals("true", allowed.headers().firstValue("Access-Control-Allow-Credentials").orElseThrow());
+
+        var denied = loginPreflight("https://other.example");
+        assertEquals(403, denied.statusCode());
+        assertTrue(denied.headers().firstValue("Access-Control-Allow-Origin").isEmpty());
+    }
+
+    private HttpResponse<String> loginPreflight(String origin) throws Exception {
+        var preflight = request("/api/auth/login", null).header("Origin", origin)
+                .header("Access-Control-Request-Method", "POST")
+                .header("Access-Control-Request-Headers", "content-type")
+                .method("OPTIONS", HttpRequest.BodyPublishers.noBody());
+        return client.send(preflight.build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    @Test
     void signupStoresHashAndVerificationActivatesOnce() throws Exception {
         String email = address();
         var created = signup("  " + email.toUpperCase(java.util.Locale.ROOT) + "  ");

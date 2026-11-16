@@ -54,6 +54,8 @@ server:
         path: /
 
 wsid:
+  cors:
+    allowed-origins: ${WSID_CORS_ALLOWED_ORIGINS:}
   auth:
     redis-namespace: ${AUTH_REDIS_NAMESPACE:wsid:auth:verification}
     code-ttl: ${AUTH_CODE_TTL:5m}
