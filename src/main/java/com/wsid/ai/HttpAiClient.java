@@ -3,9 +3,12 @@ package com.wsid.ai;
 import com.wsid.ai.dto.AiEnvelope;
 import com.wsid.ai.dto.OcrExtractResult;
 import com.wsid.ai.dto.OcrImage;
+import com.wsid.ai.dto.ScenarioGenerateRequest;
+import com.wsid.ai.dto.ScenarioGenerateResult;
 import com.wsid.ai.dto.TrainingTurnRequest;
 import com.wsid.ai.dto.TrainingTurnSuggestion;
 import java.net.http.HttpClient;
+import java.time.Duration;
 import java.util.List;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.core.io.ByteArrayResource;
@@ -18,33 +21,79 @@ import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /** AI 서비스(FastAPI)를 HTTP로 호출해요. 타임아웃이 나면 AiUnavailableException으로 바꿔 던져요. */
 public class HttpAiClient implements AiClient {
 
     static final String OCR_PATH = "/internal/ai/ocr/extract";
     static final String OCR_FAILED = "OCR_FAILED";
+    static final String SCENARIO_PATH = "/internal/ai/scenarios/generate";
+    private static final ObjectMapper SCENARIO_JSON = new ObjectMapper();
 
     private static final ParameterizedTypeReference<AiEnvelope<OcrExtractResult>> OCR_RESPONSE =
             new ParameterizedTypeReference<>() {};
 
     private final RestClient restClient;
+    private final RestClient scenarioRestClient;
 
     public HttpAiClient(AiProperties properties) {
-        this(properties, configuredBuilder(properties));
+        this(properties, configuredBuilder(properties),
+                configuredBuilder(properties, properties.scenarioReadTimeout()));
     }
 
     // The injected builder owns the transport; tests can bind MockRestServiceServer.
     public HttpAiClient(AiProperties properties, RestClient.Builder builder) {
+        this(properties, builder, builder);
+    }
+
+    public HttpAiClient(AiProperties properties, RestClient.Builder builder, RestClient.Builder scenarioBuilder) {
         this.restClient = builder.baseUrl(properties.baseUrl())
+                .defaultHeader("X-Internal-Api-Key", properties.apiKey()).build();
+        this.scenarioRestClient = scenarioBuilder.baseUrl(properties.baseUrl())
                 .defaultHeader("X-Internal-Api-Key", properties.apiKey()).build();
     }
 
     public static RestClient.Builder configuredBuilder(AiProperties properties) {
+        return configuredBuilder(properties, properties.readTimeout());
+    }
+
+    private static RestClient.Builder configuredBuilder(AiProperties properties, Duration readTimeout) {
         HttpClient httpClient = HttpClient.newBuilder().connectTimeout(properties.connectTimeout()).build();
         JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(httpClient);
-        factory.setReadTimeout(properties.readTimeout());
+        factory.setReadTimeout(readTimeout);
         return RestClient.builder().requestFactory(factory);
+    }
+
+    @Override
+    public ScenarioGenerateResult generateScenario(ScenarioGenerateRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("시나리오 생성 요청이 필요해요.");
+        }
+        try {
+            JsonNode node = scenarioRestClient.post().uri(SCENARIO_PATH)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .header("X-Request-Id", request.requestId().toString())
+                    .body(request).retrieve().body(JsonNode.class);
+            // DTO 변환 전에 검사해야 문자열 "true"나 숫자가 자동 변환되지 않아요.
+            if (node == null || !node.isObject() || !node.path("success").isBoolean()
+                    || !node.path("success").asBoolean() || !node.path("data").isObject()) {
+                throw new AiUnavailableException("AI-03 응답 형식이 올바르지 않아요.");
+            }
+            JsonNode data = node.path("data");
+            JsonNode scenario = data.path("scenario");
+            if (!scenario.isObject() || !scenario.path("title").isTextual()
+                    || !scenario.path("description").isTextual()
+                    || !data.path("mockPageTemplateCode").isTextual()) {
+                throw new AiUnavailableException("AI-03 응답 형식이 올바르지 않아요.");
+            }
+            // 생성자에서 길이·공백·코드 형식을 검사해요. 카탈로그 대조는 후속 연결의 책임이에요.
+            return SCENARIO_JSON.treeToValue(data, ScenarioGenerateResult.class);
+        } catch (RestClientException | tools.jackson.core.JacksonException | IllegalArgumentException e) {
+            // HTTP/변환 예외에는 응답 본문이 들어갈 수 있어 원인을 보관하지 않아요.
+            throw new AiUnavailableException("AI-03 호출 또는 응답 검증에 실패했어요.");
+        }
     }
 
     @Override

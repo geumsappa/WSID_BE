@@ -15,7 +15,7 @@
 | 이미지 첨부와 OCR | SIM-001 · I1 | 중 | 미구현 | - |
 | 일상 정보에서 위험 요소 추출 | SIM-002 · I1 | 상 | 사실 누적 구현, 위험 요소 추출은 후속 작업 | `context_facts` 컬럼 |
 | 훈련할 판단 지점 선정 | SIM-004 · I1 | 상 | 미구현 | - |
-| 개인화 시나리오 생성 | SIM-005 · I2 | 상 | 임시: 기본 유형 고정 | `scenario_json` 컬럼 |
+| 개인화 시나리오 생성 | SIM-005 · I2 | 상 | AI-03 클라이언트 구현, 훈련 연결은 미완료. 현재 기본 유형 자동 시작 | `scenario_json` 컬럼 |
 | 사용자 답변에 맞춘 대화 | SIM-007 · I3 | 상 | fake/HTTP 어댑터 연결, 맥락 전달 미완료 | `TrainingService.submitTurn` |
 | 대응 행동 판정 | SIM-008 · I3 | 상 | 분류 저장까지 구현 | `UserAction`, `training_messages.action_code` |
 | 핵심 장면 전개 | SIM-011 · I3 | 상 | 구현 (선택지 표시는 미구현) | `TrainingSession.applyTurn` |
@@ -66,7 +66,7 @@ AI-01 연동과 사실 누적·실패 처리 계획은 [상황 파악 다음 질
 
 `/discovery/messages`는 사용자 상황을 알아보기 위한 질문·답변, `/messages`는 생성한 시나리오 속 상대 역할과의 대화예요. 새 API는 단계를 구분하고 `/turns`는 이전용 연결만 담당해요.
 
-이전 사실·시나리오·필요한 최근 대화는 다음 AI 요청에 전달해야 해요. `contextFacts` 누적과 AI-01 대화 이력 전달을 구현했어요. `scenarioJson` 생성과 AI-04용 `TrainingTurnRequest`의 맥락 필드는 여전히 TODO예요.
+이전 사실·시나리오·필요한 최근 대화는 다음 AI 요청에 전달해야 해요. `contextFacts` 누적과 AI-01 대화 이력 전달을 구현했어요. AI-03 호출 클라이언트는 구현했지만 `scenarioJson` 생성·저장을 훈련에 연결하는 작업과 AI-04용 `TrainingTurnRequest`의 맥락 필드는 여전히 TODO예요. [AI-03 구현·연결 안내](../../../../../../docs/ai-03-scenario.md)에 역할·상태 분기·저장·코드 호환성 작업을 정리했어요.
 
 현재는 TRN-06·07 구현 전이므로 READY·DEFAULT_SCENARIO에서 고정 유형 자동 시작을 사용해요. 안내와 첫 대사를 함께 저장·응답하는 임시 처리예요.
 

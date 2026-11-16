@@ -23,7 +23,7 @@ URL의 `sessions`는 리소스 이름이에요. 로그인 세션 기능을 켜�
 
 훈련 메시지와 진행 상태는 DB에 저장하고, 확인된 사실·시나리오·필요한 최근 대화를 LLM 요청에 넣어요. 이번 요청에서 이미 가진 정보를 저장 후 다시 조회할 필요는 없어요. 다음 요청에서는 저장한 맥락을 복원해 새 답변과 합쳐요. AI 호출 중에는 DB 트랜잭션을 유지하지 않아요.
 
-현재 코드는 첫 상황 답변 뒤 고정 시나리오로 바로 넘어가는 임시 흐름이에요. 실제 후속 질문·개인화와 단계별 목표 API는 아직 연결되지 않았어요. 리포트는 잘한 행동·놓친 위험 신호·권장 대응을 다루고, 턴별 피드백을 제공하는 요구사항은 제외했어요.
+현재 코드는 여러 번의 상황 답변에서 사실을 누적한 뒤 READY·DEFAULT_SCENARIO에서 고정 유형으로 자동 시작하는 임시 흐름이에요. AI-03 호출 클라이언트는 구현했지만 개인화 생성·저장과 단계별 목표 API는 아직 연결되지 않았어요. 리포트는 잘한 행동·놓친 위험 신호·권장 대응을 다루고, 턴별 피드백을 제공하는 요구사항은 제외했어요.
 
 ## 내부 AI
 
@@ -31,7 +31,7 @@ URL의 `sessions`는 리소스 이름이에요. 로그인 세션 기능을 켜�
 |---|---|---|---|---|
 | AI-01 | POST | `/internal/ai/discovery/next` | 내부 | fake 및 HTTP 어댑터·응답 계약 테스트 구현; 실제 FastAPI 통합 검증은 미완료 |
 | AI-02 | POST | `/internal/ai/ocr/extract` | 내부 | 어댑터 구현(`AiClient.extractText`, fake/HTTP multipart); TRN-05 연결·AI 서비스 통합 검증 미완료 |
-| AI-03 | POST | `/internal/ai/scenarios/generate` | 내부 | 미구현; 고정 유형·상수 문구로 대체 |
+| AI-03 | POST | `/internal/ai/scenarios/generate` | 내부 | fake/HTTP 클라이언트·엄격한 응답 타입 검사·요청 ID·전용 타임아웃 구현. FastAPI·훈련 생성/저장은 미연결. [구현 안내](ai-03-scenario.md) |
 | AI-04 | POST | `/internal/ai/simulation/reply` | 내부 | 어댑터 구현; 실제 호출은 /internal/training/turn으로 불일치, 맥락 필드 TODO |
 | AI-05 | POST | `/internal/ai/training/evaluate` | 내부 | 미구현; report 문서 계획 |
 | AI-06 | POST | `/internal/ai/solutions/extract` | 내부 | 미구현; AiClient TODO |

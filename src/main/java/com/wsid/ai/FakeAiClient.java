@@ -2,6 +2,8 @@ package com.wsid.ai;
 
 import com.wsid.ai.dto.OcrExtractResult;
 import com.wsid.ai.dto.OcrImage;
+import com.wsid.ai.dto.ScenarioGenerateRequest;
+import com.wsid.ai.dto.ScenarioGenerateResult;
 import com.wsid.ai.dto.TrainingTurnRequest;
 import com.wsid.ai.dto.TrainingTurnSuggestion;
 import java.util.List;
@@ -11,6 +13,22 @@ import java.util.List;
  * 항상 같은 입력에 같은 답을 돌려줘요.
  */
 public class FakeAiClient implements AiClient {
+
+    /** 개발 전용. 사용자 원문을 재출력하지 않고 알려진 역할만 반영해요. */
+    @Override
+    public ScenarioGenerateResult generateScenario(ScenarioGenerateRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("시나리오 생성 요청이 필요해요.");
+        }
+        String role = request.facts().getOrDefault("role", "");
+        String description = switch (role) {
+            case "판매자" -> "중고 물품을 판매하는 가상 상황에서 상대의 안내를 확인하고 안전한 대응을 연습해요.";
+            case "구매자" -> "중고 물품을 구매하는 가상 상황에서 거래 안내를 확인하고 안전한 대응을 연습해요.";
+            default -> "중고거래의 가상 상황에서 안내를 확인하고 안전한 대응을 연습해요.";
+        };
+        return new ScenarioGenerateResult(
+                new ScenarioGenerateResult.Scenario("중고거래 안전 확인 훈련", description), "BANK_NOTICE");
+    }
 
     @Override
     public TrainingTurnSuggestion suggestTrainingTurn(TrainingTurnRequest request) {

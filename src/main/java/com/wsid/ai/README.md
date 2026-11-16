@@ -10,7 +10,7 @@ AI 서비스(FastAPI)를 부르는 유일한 통로예요. 다른 패키지는 `
 |---|---|---|---|
 | I1 | 일상 대화: 후속 질문, 사실·위험 요소 추출, 판단 지점 선정, OCR | SIM-001, 002, 004 | AI-01 fake/HTTP 어댑터 구현; 위험 요소·판단 지점·OCR은 후속 작업 |
 | AI-02 | POST | `/internal/ai/ocr/extract` | 내부 | 어댑터 구현(`AiClient.extractText`, fake/HTTP multipart); TRN-05 연결·AI 서비스 통합 검증 미완료 |
-| I2 | 개인화 시나리오 생성 | SIM-005 | 미구현 |
+| I2 | 개인화 시나리오 생성 | SIM-005 | AI-03 fake/HTTP 클라이언트 구현. 실제 FastAPI·훈련 저장 연결은 미완료 |
 | I3 | 가상 훈련 한 턴: 다음 대사, 행동 판정, 핵심 장면 제안, 가드레일 | SIM-007, 008, 011 | fake/HTTP 어댑터 구현, 목표 경로·맥락 연결은 미완료 |
 | I4 | 리포트 평가 | SIM-010 | 미구현 |
 | I5 | 피해 사실 추출 | SOL-003 | 미구현 |
@@ -27,7 +27,7 @@ AI-01 개발 흐름과 요청·응답 초안은 [상황 파악 다음 질문 개
 |---|---|---|---|---|
 | AI-01 | POST | `/internal/ai/discovery/next` | 내부 | fake 및 HTTP 어댑터·응답 계약 테스트 구현; 실제 FastAPI 통합 검증은 미완료 |
 | AI-02 | POST | `/internal/ai/ocr/extract` | 내부 | 어댑터 구현(`AiClient.extractText`, fake/HTTP multipart); TRN-05 연결·AI 서비스 통합 검증 미완료 |
-| AI-03 | POST | `/internal/ai/scenarios/generate` | 내부 | 미구현; 고정 유형·상수 문구로 대체 |
+| AI-03 | POST | `/internal/ai/scenarios/generate` | 내부 | fake/HTTP 클라이언트·응답 타입 검사·요청 ID·전용 타임아웃 구현. 실제 FastAPI·TRN-06 연결은 미완료 |
 | AI-04 | POST | `/internal/ai/simulation/reply` | 내부 | 어댑터 구현; 실제 호출은 /internal/training/turn으로 불일치, 맥락 필드 TODO |
 | AI-05 | POST | `/internal/ai/training/evaluate` | 내부 | 미구현; report 문서 계획 |
 | AI-06 | POST | `/internal/ai/solutions/extract` | 내부 | 미구현; AiClient TODO |
@@ -51,19 +51,33 @@ AI-01 개발 흐름과 요청·응답 초안은 [상황 파악 다음 질문 개
 
 AI-02는 범용 껍데기 `AiEnvelope<T>`를 써요. AI-01은 필드를 엄격히 검사하는 `DiscoveryEnvelope`를 따로 써요. AI-04 어댑터는 껍데기 없는 본문을 기대하므로 경로 전환 때 같이 맞춰요.
 
+## AI-03 시나리오 생성 계약
+
+자세한 코드 흐름·관련 코드·후속 처리·검증 결과는 [AI-03 구현·연결 안내](../../../../../../docs/ai-03-scenario.md)를 참고해요.
+
+- `AiClient.generateScenario(ScenarioGenerateRequest)`를 호출해요. 현재 운영 호출자는 없고 TRN-06에서 연결해야 해요.
+- 요청은 `facts`와 `fraudTypeCode`예요. 현재 `SECONDHAND_TRADE`만 지원하고, 사실은 activity 필수·허용 키의 1~100자 문자열만 받아요. 잘못된 값은 버리지 않고 입력 예외로 거부해요.
+- `requestId`는 JSON 본문에 넣지 않고 `X-Request-Id` 헤더로 보내요. 내부 키는 기존과 같아요.
+- 응답을 `JsonNode`로 받아 boolean success·객체·문자열 타입을 확인한 뒤 `ScenarioGenerateResult`로 변환해요. `AiEnvelope`로 바로 변환하지 않아요.
+- 제목은 100자, 설명은 1,000자 이하이고 공백만 있으면 안 돼요. 템플릿 코드는 `[A-Z0-9_]{1,50}` 형식만 검사해요. 실제 등록·유형별 허용 확인은 후속 카탈로그 연결이 필요해요.
+- 호출·응답 오류는 원문이나 원인 예외를 보관하지 않고 `AiUnavailableException`으로 바꿔요. 자동 재시도는 하지 않아요.
+- AI-03용 `scenarioRestClient`는 `wsid.ai.scenario-read-timeout`을 사용해요. `AI_SCENARIO_READ_TIMEOUT`으로 조정하며 기본은 20초예요. 다른 AI API의 응답 제한은 유지해요.
+- fake는 역할별 고정 가상 설명과 예시 코드 `BANK_NOTICE`를 반환해요. 실제 모의 화면이나 검토 완료 콘텐츠를 제공하는 것은 아니에요.
+- 기존 training의 `USED_GOODS_TRADE`는 새 요청에서 거부해요. 후속 연결 시 명시적인 코드 매핑 또는 데이터 호환 처리가 필요해요.
+
 ## 파일
 
 | 파일 | 역할 |
 |---|---|
 | `AiClient` | 인터페이스 |
 | `FakeAiClient` | 가짜 구현. `wsid.ai.mode=fake`(기본값)일 때 사용 |
-| `HttpAiClient` | 실제 호출. 연결 2초, 응답 20초 타임아웃 |
+| `HttpAiClient` | 실제 호출. 연결 2초·응답 기본 20초. AI-03은 별도 클라이언트와 응답 제한 사용 |
 | `AiClientConfig`, `AiProperties` | 설정으로 구현 선택 |
 | `dto/` | AI 서비스와 주고받는 형식. AI repo와의 계약이에요 (`AiEnvelope`: 공통 응답 껍데기, `OcrImage`·`OcrExtractResult`: AI-02) |
 
 ## 내부 API를 하나 추가하는 방법
 
-1. `dto/`에 요청·응답 record를 만들어요. 응답은 AI가 틀린 값을 보내도 흐름이 깨지지 않게 받아요(예: 허용 목록 밖의 코드는 기본값으로).
+1. `dto/`에 요청·응답 record를 만들어요. 응답의 타입·필수 값과 실패 정책을 정해요. AI-03처럼 필수 계약이 깨지면 사용 불가로 처리하고, 기본 콘텐츠 선택은 호출 서비스에 맡겨요.
 2. `AiClient`에 메서드를 추가해요.
 3. `FakeAiClient`에 항상 같은 답을 돌려주는 구현을 넣어요. 이걸로 화면과 서비스 개발을 먼저 진행해요.
 4. `HttpAiClient`에 실제 호출을 넣고, 실패는 `AiUnavailableException`으로 바꿔 던져요.

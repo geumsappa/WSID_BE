@@ -2,6 +2,8 @@ package com.wsid.ai;
 
 import com.wsid.ai.dto.OcrExtractResult;
 import com.wsid.ai.dto.OcrImage;
+import com.wsid.ai.dto.ScenarioGenerateRequest;
+import com.wsid.ai.dto.ScenarioGenerateResult;
 import com.wsid.ai.dto.TrainingTurnRequest;
 import com.wsid.ai.dto.TrainingTurnSuggestion;
 import java.util.List;
@@ -29,6 +31,14 @@ public interface AiClient {
      * @throws AiUnavailableException 타임아웃, 오류, 형식이 깨진 응답
      */
     OcrExtractResult extractText(List<OcrImage> images);
+
+    /**
+     * AI-03: 확인한 사실로 가상 훈련의 개요와 모의 페이지 코드 제안을 받아요.
+     * 호출자는 트랜잭션 밖에서 호출하고, 저장 전 콘텐츠·템플릿 적합성을 확인해야 해요.
+     *
+     * @throws AiUnavailableException 호출 실패 또는 계약에 어긋난 응답
+     */
+    ScenarioGenerateResult generateScenario(ScenarioGenerateRequest request);
 
     // TODO(SOL-003): 피해 설명에서 송금·정보 제공·앱 설치·연락 지속 여부 추출
 }
