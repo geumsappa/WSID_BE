@@ -12,7 +12,7 @@ AI 서비스(FastAPI)를 부르는 유일한 통로예요. 다른 패키지는 `
 | AI-02 | POST | `/internal/ai/ocr/extract` | 내부 | 어댑터 구현(`AiClient.extractText`, fake/HTTP multipart); TRN-05 연결·AI 서비스 통합 검증 미완료 |
 | I2 | 개인화 시나리오 생성 | SIM-005 | AI-03 fake/HTTP 클라이언트 구현. 실제 FastAPI·훈련 저장 연결은 미완료 |
 | I3 | 가상 훈련 한 턴: 다음 대사, 행동 판정, 핵심 장면 제안, 가드레일 | SIM-007, 008, 011 | AI-04 새 클라이언트 구현. 기존 서비스 전환·실제 가드레일·핵심 장면 맥락 연결은 미완료 |
-| I4 | 리포트 평가 | SIM-010 | 미구현 |
+| I4 | 리포트 평가 | SIM-010 | AI-05 fake/HTTP 클라이언트 구현. 실제 FastAPI·리포트 생성/저장 연결은 미완료 |
 | I5 | 피해 사실 추출 | SOL-003 | 미구현 |
 | I6 | 공식 근거 문단 검색 | SOL-004 | 미구현 |
 | - | AI 호출 실패 시 대체 흐름 | 비기능 | 구현 (`AiUnavailableException`) |
@@ -29,7 +29,7 @@ AI-01 개발 흐름과 요청·응답 초안은 [상황 파악 다음 질문 개
 | AI-02 | POST | `/internal/ai/ocr/extract` | 내부 | 어댑터 구현(`AiClient.extractText`, fake/HTTP multipart); TRN-05 연결·AI 서비스 통합 검증 미완료 |
 | AI-03 | POST | `/internal/ai/scenarios/generate` | 내부 | fake/HTTP 클라이언트·응답 타입 검사·요청 ID·전용 타임아웃 구현. 실제 FastAPI·TRN-06 연결은 미완료 |
 | AI-04 | POST | `/internal/ai/simulation/reply` | 내부 | replySimulation fake/HTTP 클라이언트·엄격한 응답 검사 구현. 기존 훈련 서비스는 옛 메서드·경로 유지, 실제 FastAPI·서비스 전환 미완료 |
-| AI-05 | POST | `/internal/ai/training/evaluate` | 내부 | 미구현; report 문서 계획 |
+| AI-05 | POST | `/internal/ai/training/evaluate` | 내부 | evaluateTraining fake/HTTP 클라이언트·엄격한 응답 검사·전용 타임아웃 구현. 실제 FastAPI·리포트 서비스 연결은 미완료 |
 | AI-06 | POST | `/internal/ai/solutions/extract` | 내부 | 미구현; AiClient TODO |
 | AI-07 | POST | `/internal/ai/solutions/explain` | 내부 | 미구현; 문서는 I6 근거 검색으로 설명 |
 
@@ -78,6 +78,17 @@ AI-02는 범용 껍데기 `AiEnvelope<T>`를 써요. AI-01은 필드를 엄격�
 - `shouldFinish`는 제안만 반환하며 서버 종료·DB 저장은 수행하지 않아요. 가드레일 통과나 실제 이벤트 수행을 뜻하지 않아요.
 - 기존 훈련용 restClient와 readTimeout을 사용해요. AI-03 전용 제한과 분리돼요.
 - fake는 공식·확인 키워드, `[AI_FAIL]`, `[AI_FINISH]`로 개발 흐름을 재현해요. LLM 품질 검증이나 운영 안전성 보장은 아니에요.
+
+## AI-05 평가 계약과 FastAPI 개발 시 참고
+
+Spring 1차 클라이언트만 구현했고 실제 리포트 생성·저장은 아직 연결하지 않았어요. 자세한 파일별 책임은 [AI-05 구현 보고서](../../../../../../docs/ai-05-evaluation.md)의 6·7장, FastAPI 개발 디렉토리와 응답 계약은 9장을 참고해요.
+
+- FastAPI의 `schemas/evaluation.py`는 `TrainingEvaluateRequest`·`SimulationMessage`·`EvaluationAction`·`TrainingEvaluateResult`와 대응해요. 경로는 별도 AI 저장소에 적용할 제안이에요.
+- `strengths`·`improvements`·`recommendations`는 문자열 배열, `turnFeedback`은 현재 빈 배열만 지원해요.
+- success와 모의 페이지 결과 3개는 실제 boolean이어야 해요. false나 빈 배열이어도 필수 필드를 생략하면 안 돼요.
+- `routers/training.py`는 HttpAiClient가 보내는 내부 키·X-Request-Id 헤더와 성공 봉투를 맞춰야 해요. 요청 ID는 JSON 본문에 없어요.
+- 응답 구조가 바뀌면 결과 DTO만 바꾸지 말고 HttpAiClient의 JsonNode 검사와 계약 테스트도 함께 바꿔요. 원문 복사·행동 근거 검증은 FastAPI와 후속 리포트 검증 계층에서 수행해야 해요.
+- 503 오류와 HTTP 200의 success=false는 현재 모두 사용 불가로 처리해요. 성공 응답의 필드 타입·필수 여부와 오류 상태 선택을 구분해 합의해요.
 
 ## 파일
 

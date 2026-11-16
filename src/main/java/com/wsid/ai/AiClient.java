@@ -8,6 +8,8 @@ import com.wsid.ai.dto.SimulationReplyRequest;
 import com.wsid.ai.dto.SimulationReplyResult;
 import com.wsid.ai.dto.TrainingTurnRequest;
 import com.wsid.ai.dto.TrainingTurnSuggestion;
+import com.wsid.ai.dto.TrainingEvaluateRequest;
+import com.wsid.ai.dto.TrainingEvaluateResult;
 import java.util.List;
 
 /**
@@ -49,6 +51,14 @@ public interface AiClient {
      * @throws AiUnavailableException 호출 실패 또는 계약에 어긋난 응답
      */
     SimulationReplyResult replySimulation(SimulationReplyRequest request);
+
+    /**
+     * AI-05: 종료된 훈련의 기록으로 리포트용 평가를 받아요.
+     * 저장·근거 대조·기본 리포트 전환은 호출자의 책임이며 트랜잭션 밖에서 호출해요.
+     *
+     * @throws AiUnavailableException 호출 실패 또는 계약에 어긋난 응답
+     */
+    TrainingEvaluateResult evaluateTraining(TrainingEvaluateRequest request);
 
     // TODO(SOL-003): 피해 설명에서 송금·정보 제공·앱 설치·연락 지속 여부 추출
 }

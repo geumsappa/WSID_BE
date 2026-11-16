@@ -8,6 +8,8 @@ import com.wsid.ai.dto.SimulationReplyRequest;
 import com.wsid.ai.dto.SimulationReplyResult;
 import com.wsid.ai.dto.TrainingTurnRequest;
 import com.wsid.ai.dto.TrainingTurnSuggestion;
+import com.wsid.ai.dto.TrainingEvaluateRequest;
+import com.wsid.ai.dto.TrainingEvaluateResult;
 import java.util.List;
 
 /**
@@ -15,6 +17,24 @@ import java.util.List;
  * 항상 같은 입력에 같은 답을 돌려줘요.
  */
 public class FakeAiClient implements AiClient {
+
+    /** 평가 연결 전 개발용 결과. 사용자 원문을 평가 문구에 끼워 넣지 않아요. */
+    @Override
+    public TrainingEvaluateResult evaluateTraining(TrainingEvaluateRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("훈련 평가 요청이 필요해요.");
+        }
+        if (request.conversation().stream().anyMatch(message -> message.content().contains("[AI_FAIL]"))) {
+            throw new AiUnavailableException("가짜 AI-05 실패");
+        }
+        boolean openedPage = request.actions().stream()
+                .anyMatch(action -> "MOCK_PAGE_OPEN".equals(action.actionCode()));
+        return new TrainingEvaluateResult(
+                "훈련 기록을 바탕으로 확인 방법을 돌아보세요.",
+                List.of(), List.of(), List.of(),
+                new TrainingEvaluateResult.MockPageEvaluation(openedPage, false, false),
+                List.of("공식 채널에서 다시 확인해 보세요."));
+    }
 
     /** 개발용 키워드 분류. 실제 분석·가드레일을 검증하는 구현은 아니에요. */
     @Override
