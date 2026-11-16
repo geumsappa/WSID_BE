@@ -9,3 +9,7 @@ server:
     session:
       cookie:
         secure: false
+
+wsid:
+  cors:
+    allowed-origins: ${WSID_CORS_ALLOWED_ORIGINS:http://localhost:8443}
