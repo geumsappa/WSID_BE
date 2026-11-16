@@ -7,6 +7,8 @@ import com.wsid.ai.dto.ScenarioGenerateRequest;
 import com.wsid.ai.dto.ScenarioGenerateResult;
 import com.wsid.ai.dto.SimulationReplyRequest;
 import com.wsid.ai.dto.SimulationReplyResult;
+import com.wsid.ai.dto.SolutionExtractRequest;
+import com.wsid.ai.dto.SolutionExtractResult;
 import com.wsid.ai.dto.TrainingTurnRequest;
 import com.wsid.ai.dto.TrainingTurnSuggestion;
 import com.wsid.ai.dto.TrainingEvaluateRequest;
@@ -36,9 +38,11 @@ public class HttpAiClient implements AiClient {
     static final String SCENARIO_PATH = "/internal/ai/scenarios/generate";
     static final String SIMULATION_PATH = "/internal/ai/simulation/reply";
     static final String EVALUATION_PATH = "/internal/ai/training/evaluate";
+    static final String SOLUTION_EXTRACT_PATH = "/internal/ai/solutions/extract";
     private static final ObjectMapper SCENARIO_JSON = new ObjectMapper();
     private static final ObjectMapper SIMULATION_JSON = new ObjectMapper();
     private static final ObjectMapper EVALUATION_JSON = new ObjectMapper();
+    private static final ObjectMapper SOLUTION_JSON = new ObjectMapper();
 
     private static final ParameterizedTypeReference<AiEnvelope<OcrExtractResult>> OCR_RESPONSE =
             new ParameterizedTypeReference<>() {};
@@ -81,6 +85,43 @@ public class HttpAiClient implements AiClient {
         JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(httpClient);
         factory.setReadTimeout(readTimeout);
         return RestClient.builder().requestFactory(factory);
+    }
+
+    @Override
+    public SolutionExtractResult extractSolutionFacts(SolutionExtractRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("피해 사실 추출 요청이 필요해요.");
+        }
+        try {
+            JsonNode node = restClient.post().uri(SOLUTION_EXTRACT_PATH)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .header("X-Request-Id", request.requestId().toString())
+                    .body(request).retrieve().body(JsonNode.class);
+            if (node == null || !node.isObject() || !node.path("success").isBoolean()
+                    || !node.path("success").asBoolean() || !node.path("data").isObject()) {
+                throw new AiUnavailableException("AI-06 응답 형식이 올바르지 않아요.");
+            }
+            JsonNode data = node.path("data");
+            JsonNode facts = data.path("facts");
+            JsonNode uncertain = data.path("uncertainFields");
+            if (!facts.isObject() || facts.size() != SolutionExtractRequest.FACT_KEYS.size() || !uncertain.isArray()) {
+                throw new AiUnavailableException("AI-06 사실 형식이 올바르지 않아요.");
+            }
+            for (String key : SolutionExtractRequest.FACT_KEYS) {
+                if (!facts.path(key).isString()) {
+                    throw new AiUnavailableException("AI-06 사실 값 타입이 올바르지 않아요.");
+                }
+            }
+            for (JsonNode key : uncertain) {
+                if (!key.isString()) {
+                    throw new AiUnavailableException("AI-06 미확정 항목 타입이 올바르지 않아요.");
+                }
+            }
+            return SOLUTION_JSON.treeToValue(data, SolutionExtractResult.class);
+        } catch (RestClientException | tools.jackson.core.JacksonException | IllegalArgumentException e) {
+            // 피해 설명·추출 근거·응답 본문이 원인 예외에 포함될 수 있어 보관하지 않아요.
+            throw new AiUnavailableException("AI-06 호출 또는 응답 검증에 실패했어요.");
+        }
     }
 
     @Override

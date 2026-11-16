@@ -6,6 +6,8 @@ import com.wsid.ai.dto.ScenarioGenerateRequest;
 import com.wsid.ai.dto.ScenarioGenerateResult;
 import com.wsid.ai.dto.SimulationReplyRequest;
 import com.wsid.ai.dto.SimulationReplyResult;
+import com.wsid.ai.dto.SolutionExtractRequest;
+import com.wsid.ai.dto.SolutionExtractResult;
 import com.wsid.ai.dto.TrainingTurnRequest;
 import com.wsid.ai.dto.TrainingTurnSuggestion;
 import com.wsid.ai.dto.TrainingEvaluateRequest;
@@ -60,5 +62,11 @@ public interface AiClient {
      */
     TrainingEvaluateResult evaluateTraining(TrainingEvaluateRequest request);
 
-    // TODO(SOL-003): 피해 설명에서 송금·정보 제공·앱 설치·연락 지속 여부 추출
+    /**
+     * AI-06: 피해 설명에서 확인/미확정 사실을 구조화해요. 누적·수정·대응 카드 선택은 호출자 책임이에요.
+     * 요청·응답 원문은 기록하지 않고 트랜잭션 밖에서 호출해요.
+     *
+     * @throws AiUnavailableException 호출 실패 또는 계약에 어긋난 응답
+     */
+    SolutionExtractResult extractSolutionFacts(SolutionExtractRequest request);
 }

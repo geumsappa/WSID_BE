@@ -13,7 +13,7 @@ AI 서비스(FastAPI)를 부르는 유일한 통로예요. 다른 패키지는 `
 | I2 | 개인화 시나리오 생성 | SIM-005 | AI-03 fake/HTTP 클라이언트 구현. 실제 FastAPI·훈련 저장 연결은 미완료 |
 | I3 | 가상 훈련 한 턴: 다음 대사, 행동 판정, 핵심 장면 제안, 가드레일 | SIM-007, 008, 011 | AI-04 새 클라이언트 구현. 기존 서비스 전환·실제 가드레일·핵심 장면 맥락 연결은 미완료 |
 | I4 | 리포트 평가 | SIM-010 | AI-05 fake/HTTP 클라이언트 구현. 실제 FastAPI·리포트 생성/저장 연결은 미완료 |
-| I5 | 피해 사실 추출 | SOL-003 | 미구현 |
+| I5 | 피해 사실 추출 | SOL-003 | AI-06 fake/HTTP 클라이언트 구현. 실제 FastAPI·상담 사실 누적/저장은 미연결 |
 | I6 | 공식 근거 문단 검색 | SOL-004 | 미구현 |
 | - | AI 호출 실패 시 대체 흐름 | 비기능 | 구현 (`AiUnavailableException`) |
 
@@ -30,7 +30,7 @@ AI-01 개발 흐름과 요청·응답 초안은 [상황 파악 다음 질문 개
 | AI-03 | POST | `/internal/ai/scenarios/generate` | 내부 | fake/HTTP 클라이언트·응답 타입 검사·요청 ID·전용 타임아웃 구현. 실제 FastAPI·TRN-06 연결은 미완료 |
 | AI-04 | POST | `/internal/ai/simulation/reply` | 내부 | replySimulation fake/HTTP 클라이언트·엄격한 응답 검사 구현. 기존 훈련 서비스는 옛 메서드·경로 유지, 실제 FastAPI·서비스 전환 미완료 |
 | AI-05 | POST | `/internal/ai/training/evaluate` | 내부 | evaluateTraining fake/HTTP 클라이언트·엄격한 응답 검사·전용 타임아웃 구현. 실제 FastAPI·리포트 서비스 연결은 미완료 |
-| AI-06 | POST | `/internal/ai/solutions/extract` | 내부 | 미구현; AiClient TODO |
+| AI-06 | POST | `/internal/ai/solutions/extract` | 내부 | extractSolutionFacts fake/HTTP 클라이언트·엄격한 타입/미확정 집합 검사 구현. 실제 FastAPI·상담 서비스·저장·카드 선택은 미연결 |
 | AI-07 | POST | `/internal/ai/solutions/explain` | 내부 | 미구현; 문서는 I6 근거 검색으로 설명 |
 
 새 `replySimulation`은 목표 AI-04 경로를 호출해요. 현재 훈련 서비스는 이전 `suggestTrainingTurn`과 `/internal/training/turn`을 계속 사용해요. 실제 AI 서비스 통합과 시나리오 저장·이력 구성·서비스 전환은 후속 작업이에요. 새 DTO에 시나리오·최근 대화를 담을 수 있지만 기존 서비스가 자동으로 이 맥락을 전달하지는 않아요.
@@ -89,6 +89,17 @@ Spring 1차 클라이언트만 구현했고 실제 리포트 생성·저장은 �
 - `routers/training.py`는 HttpAiClient가 보내는 내부 키·X-Request-Id 헤더와 성공 봉투를 맞춰야 해요. 요청 ID는 JSON 본문에 없어요.
 - 응답 구조가 바뀌면 결과 DTO만 바꾸지 말고 HttpAiClient의 JsonNode 검사와 계약 테스트도 함께 바꿔요. 원문 복사·행동 근거 검증은 FastAPI와 후속 리포트 검증 계층에서 수행해야 해요.
 - 503 오류와 HTTP 200의 success=false는 현재 모두 사용 불가로 처리해요. 성공 응답의 필드 타입·필수 여부와 오류 상태 선택을 구분해 합의해요.
+
+## AI-06 피해 사실 추출 계약과 FastAPI 개발 시 참고
+
+Spring 클라이언트만 구현했고 실제 상담 API·사실 누적·카드 선택은 아직 연결하지 않았어요. 파일별 상호작용은 [AI-06 구현 보고서](../../../../../../docs/ai-06-solution-extract.md)의 7·8장, FastAPI 개발 디렉토리별 계약은 9장을 참고해요.
+
+- `AiClient.extractSolutionFacts(SolutionExtractRequest)`에 설명·현재 사실 Map·UUID를 전달해요. 설명은 1,000자 이하, knownFacts는 빈/부분 Map을 허용해요. DTO가 개인정보를 자동으로 가리지 않으므로 호출 전에 필요한 상황만 남겨야 해요.
+- 사실 키는 transferredMoney·contactContinues·sharedInformation·installedApp, 값은 YES·NO·UNKNOWN 문자열만 받아요. 응답은 4개 필드 전체와 uncertainFields를 필수로 반환해요.
+- 실제 boolean success와 실제 문자열 사실 값을 JsonNode로 확인한 뒤 변환해요. uncertainFields는 중복 없이 UNKNOWN인 키와 정확히 같아야 하며, 전부 확정되어도 빈 배열을 생략하면 안 돼요.
+- requestId는 JSON에서 제외하고 X-Request-Id 헤더로 보내요. 기존 공통 restClient/readTimeout을 사용하며 자동 재시도는 하지 않아요.
+- 결과는 제안이에요. 사용자 확정값 보호·충돌 확인·실패 시 직접 선택·대응 카드 결정·DB 저장은 후속 solution 서비스에서 처리해요. 원문·추출 근거는 저장하거나 로그에 남기지 않아요.
+- FastAPI의 제안 경로 `schemas/solution_extract.py`·`routers/solutions.py`·`services/solution_extractor.py`에 계약과 추정 금지 규칙을 적용해야 해요. Python 코드는 이 저장소에 없어요. 형식 검증만으로 실제 LLM의 추정 방지를 보장할 수는 없어요.
 
 ## 파일
 

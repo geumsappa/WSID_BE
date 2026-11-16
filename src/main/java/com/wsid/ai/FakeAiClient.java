@@ -6,17 +6,51 @@ import com.wsid.ai.dto.ScenarioGenerateRequest;
 import com.wsid.ai.dto.ScenarioGenerateResult;
 import com.wsid.ai.dto.SimulationReplyRequest;
 import com.wsid.ai.dto.SimulationReplyResult;
+import com.wsid.ai.dto.SolutionExtractRequest;
+import com.wsid.ai.dto.SolutionExtractResult;
 import com.wsid.ai.dto.TrainingTurnRequest;
 import com.wsid.ai.dto.TrainingTurnSuggestion;
 import com.wsid.ai.dto.TrainingEvaluateRequest;
 import com.wsid.ai.dto.TrainingEvaluateResult;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * AI 서비스 없이 개발하고 테스트하기 위한 가짜 구현.
  * 항상 같은 입력에 같은 답을 돌려줘요.
  */
 public class FakeAiClient implements AiClient {
+
+    /** 합성 문장 몇 개만 인식하는 개발용 결과. 일반 문장의 키워드로 사실을 추측하지 않아요. */
+    @Override
+    public SolutionExtractResult extractSolutionFacts(SolutionExtractRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("피해 사실 추출 요청이 필요해요.");
+        }
+        String description = request.description();
+        if (description.contains("[AI_FAIL]")) {
+            throw new AiUnavailableException("가짜 AI-06 실패");
+        }
+        Map<String, String> facts = new LinkedHashMap<>();
+        List<String> keys = List.of("transferredMoney", "contactContinues", "sharedInformation", "installedApp");
+        keys.forEach(key -> facts.put(key, request.knownFacts().getOrDefault(key, "UNKNOWN")));
+        switch (description.strip()) {
+            case "송금 후 연락이 끊겼어요." -> {
+                facts.put("transferredMoney", "YES");
+                facts.put("contactContinues", "NO");
+            }
+            case "송금하지 않았어요.", "송금하려다 멈췄어요." -> facts.put("transferredMoney", "NO");
+            case "개인정보를 전달했어요." -> facts.put("sharedInformation", "YES");
+            case "개인정보를 전달하지 않았어요." -> facts.put("sharedInformation", "NO");
+            case "앱을 설치했어요." -> facts.put("installedApp", "YES");
+            case "앱을 설치하지 않았어요." -> facts.put("installedApp", "NO");
+            case "상대방과 계속 연락하고 있어요." -> facts.put("contactContinues", "YES");
+            default -> { /* 명시적인 개발용 문장 외에는 기존 사실/UNKNOWN을 유지해요. */ }
+        }
+        List<String> uncertain = keys.stream().filter(key -> "UNKNOWN".equals(facts.get(key))).toList();
+        return new SolutionExtractResult(facts, uncertain);
+    }
 
     /** 평가 연결 전 개발용 결과. 사용자 원문을 평가 문구에 끼워 넣지 않아요. */
     @Override
