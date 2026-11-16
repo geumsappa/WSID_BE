@@ -16,6 +16,8 @@ spring:
       ddl-auto: validate       # 테이블은 Flyway가 만들고, 엔티티와 맞는지만 서버 시작 때 검사해요
 
 wsid:
+  content:
+    fraud-types-location: "classpath*:/content/fraud-types/"
   ai:
     mode: ${AI_MODE:fake}      # fake: 가짜 응답으로 개발 / http: AI 서비스(FastAPI) 호출
     base-url: ${AI_BASE_URL:http://localhost:8000}

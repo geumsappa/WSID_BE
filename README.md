@@ -16,7 +16,7 @@ React ──HTTPS──▶ Spring Boot ──내부 HTTP──▶ FastAPI ──
 ```
 
 - 브라우저는 Spring Boot만 호출해요. FastAPI는 외부에 공개하지 않아요.
-- 목표 구조에서는 대응 카드, 기관명, 연락처, 공식 링크를 Spring이 검토된 YAML에서 골라요. 콘텐츠 로더·조회 API는 아직 미구현이에요. FastAPI의 RAG는 후속으로 근거 문단을 찾아 설명에 붙여요.
+- 목표 구조에서는 대응 카드, 기관명, 연락처, 공식 링크를 Spring이 검토된 YAML에서 골라요. 유형 목록 GUIDE-01의 YAML 로더·공개 GET은 구현했고 기본 자료는 미검토 초안이라 현재 빈 목록을 반환해요. 카드·기관 로더/API와 실제 승인 콘텐츠 등록은 후속 작업이에요. FastAPI의 RAG는 후속으로 근거 문단을 찾아 설명에 붙여요.
 - Redis와 RAG는 해당 기능을 만들 때 붙여요. 지금 뼈대에는 PostgreSQL만 있어요.
 
 ## 개발 기준

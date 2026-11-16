@@ -53,7 +53,7 @@ URL의 `sessions`는 리소스 이름이에요. 로그인 세션 기능을 켜�
 
 | API ID | 메서드 | 경로 | 인증 | 현재 구현 |
 |---|---|---|---|---|
-| GUIDE-01 | GET | `/api/guides/fraud-types` | 불필요 | content 문서 계획; 로더·API 없음, 현재 보안 규칙에 공개 경로 등록 필요 |
+| GUIDE-01 | GET | `/api/guides/fraud-types` | 불필요 | YAML 로더·승인 필터/정렬·메모리 카탈로그·성공 봉투·익명 GET 구현. 기본 데이터는 미검토 초안이므로 현재 data는 빈 배열. [구현 보고서](guide-01-fraud-types.md) |
 | GUIDE-02 | GET | `/api/guides/fraud-types/{code}` | 불필요 | content 문서 계획; 로더·API 없음 |
 | GUIDE-03 | GET | `/api/guides/response-cards` | 불필요 | 카드 형식 README만; 적용 조건의 요청·응답 정의 필요 |
 | GUIDE-04 | GET | `/api/guides/institutions` | 불필요 | content 문서 계획; API 없음 |

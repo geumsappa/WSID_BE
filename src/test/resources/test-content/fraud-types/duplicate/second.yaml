@@ -1,0 +1,7 @@
+code: DUPLICATE
+name: "두 번째 합성 유형"
+description: "미검토여도 중복 코드 거부"
+display_order: 1
+reviewed: false
+source: "https://example.invalid/second"
+checked_at: "2026-11-16"

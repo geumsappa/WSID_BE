@@ -1,0 +1,7 @@
+code: INVALID
+name: "타입 오류"
+description: "검토 여부 문자열은 거부해야 함"
+display_order: 0
+reviewed: "true"
+source: "https://example.invalid/invalid"
+checked_at: "2026-11-16"

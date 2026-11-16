@@ -20,6 +20,7 @@
 | `error/ErrorResponse` | 현재 처리하는 예외의 응답 형식 `{ "code": "...", "message": "..." }` |
 | `error/GlobalExceptionHandler` | 예외를 오류 응답으로 변환 |
 | `config/SecurityConfig` | 경로별 접근 권한, CSRF |
+| `api/ApiResponse` | GUIDE-01에서 명시적으로 사용하는 성공 봉투 `{ "success": true, "data": [...] }`. 기존 훈련·오류에는 자동 적용하지 않음 |
 | `domain/MessageSender`, `InputKind` | training과 solution의 메시지 테이블이 같이 쓰는 enum |
 
 ## 접근 정책과 현재 보안 설정
@@ -27,6 +28,8 @@
 목표 정책은 훈련·리포트·내 정보·세션 확인·로그아웃은 로그인 필수, 피해 대응 상담·GUIDE는 비회원 허용이에요. 상담에는 별도 소유권 확인이 필요해요. 세션 로그인은 아직 구현하지 않았고 local은 개발 계정을 사용해요.
 
 `SecurityConfig`의 현재 `/api/training/**`, `/api/solution/**`, `/api/content/**` 규칙은 이전 경로와 개발 편의를 위한 설정이에요. 새 `/api/trainings/**`, `/api/reports/**`, `/api/solutions/**`, `/api/guides/**`, AUTH 세부 경로에 맞춰 권한을 정렬하고 쿠키 기반 인증의 CSRF 정책을 구현해야 해요.
+
+GUIDE-01의 `GET /api/guides/fraud-types`는 익명 접근을 추가했어요. 다른 guides 경로나 메서드를 한꺼번에 공개하지 않았어요. [GUIDE-01 구현 보고서](../../../../../../docs/guide-01-fraud-types.md)의 5·6장에 성공 봉투·보안 테스트·후속 확장 시 주의사항을 정리했어요.
 
 현재 `GlobalExceptionHandler`는 API 예외·Bean Validation·낙관적 잠금 충돌을 처리해요. JSON 파싱 오류도 INVALID_REQUEST로 처리하고, 요청·순서 유니크 제약 위반은 409로 구분해요. 보안 계층 오류 등은 공통 형식이 보장되지 않으므로 보완해야 해요.
 
