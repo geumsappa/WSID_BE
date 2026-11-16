@@ -4,6 +4,8 @@ import com.wsid.ai.dto.OcrExtractResult;
 import com.wsid.ai.dto.OcrImage;
 import com.wsid.ai.dto.ScenarioGenerateRequest;
 import com.wsid.ai.dto.ScenarioGenerateResult;
+import com.wsid.ai.dto.SimulationReplyRequest;
+import com.wsid.ai.dto.SimulationReplyResult;
 import com.wsid.ai.dto.TrainingTurnRequest;
 import com.wsid.ai.dto.TrainingTurnSuggestion;
 import java.util.List;
@@ -39,6 +41,14 @@ public interface AiClient {
      * @throws AiUnavailableException 호출 실패 또는 계약에 어긋난 응답
      */
     ScenarioGenerateResult generateScenario(ScenarioGenerateRequest request);
+
+    /**
+     * AI-04: 저장한 시나리오·이력으로 다음 역할극 대사와 행동 분석 제안을 받아요.
+     * 종료·행동 매핑·DB 저장은 호출자가 결정해요. 기존 훈련 호출은 전환 전까지 유지해요.
+     *
+     * @throws AiUnavailableException 호출 실패 또는 계약에 어긋난 응답
+     */
+    SimulationReplyResult replySimulation(SimulationReplyRequest request);
 
     // TODO(SOL-003): 피해 설명에서 송금·정보 제공·앱 설치·연락 지속 여부 추출
 }

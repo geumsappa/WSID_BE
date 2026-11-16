@@ -5,6 +5,8 @@ import com.wsid.ai.dto.OcrExtractResult;
 import com.wsid.ai.dto.OcrImage;
 import com.wsid.ai.dto.ScenarioGenerateRequest;
 import com.wsid.ai.dto.ScenarioGenerateResult;
+import com.wsid.ai.dto.SimulationReplyRequest;
+import com.wsid.ai.dto.SimulationReplyResult;
 import com.wsid.ai.dto.TrainingTurnRequest;
 import com.wsid.ai.dto.TrainingTurnSuggestion;
 import java.net.http.HttpClient;
@@ -30,7 +32,9 @@ public class HttpAiClient implements AiClient {
     static final String OCR_PATH = "/internal/ai/ocr/extract";
     static final String OCR_FAILED = "OCR_FAILED";
     static final String SCENARIO_PATH = "/internal/ai/scenarios/generate";
+    static final String SIMULATION_PATH = "/internal/ai/simulation/reply";
     private static final ObjectMapper SCENARIO_JSON = new ObjectMapper();
+    private static final ObjectMapper SIMULATION_JSON = new ObjectMapper();
 
     private static final ParameterizedTypeReference<AiEnvelope<OcrExtractResult>> OCR_RESPONSE =
             new ParameterizedTypeReference<>() {};
@@ -64,6 +68,40 @@ public class HttpAiClient implements AiClient {
         JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(httpClient);
         factory.setReadTimeout(readTimeout);
         return RestClient.builder().requestFactory(factory);
+    }
+
+    @Override
+    public SimulationReplyResult replySimulation(SimulationReplyRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("역할극 응답 요청이 필요해요.");
+        }
+        try {
+            // 훈련 턴용 제한을 사용해요. AI-03 생성용 클라이언트와 분리되어 있어요.
+            JsonNode node = restClient.post().uri(SIMULATION_PATH)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .header("X-Request-Id", request.requestId().toString())
+                    .body(request).retrieve().body(JsonNode.class);
+            if (node == null || !node.isObject() || !node.path("success").isBoolean()
+                    || !node.path("success").asBoolean() || !node.path("data").isObject()) {
+                throw new AiUnavailableException("AI-04 응답 형식이 올바르지 않아요.");
+            }
+            JsonNode data = node.path("data");
+            JsonNode actions = data.path("recognizedActions");
+            if (!data.path("reply").isTextual() || !actions.isArray()
+                    || !data.path("shouldFinish").isBoolean()
+                    || !data.has("mockPage") || !data.path("mockPage").isNull()) {
+                throw new AiUnavailableException("AI-04 응답 형식이 올바르지 않아요.");
+            }
+            for (JsonNode action : actions) {
+                if (!action.isTextual()) {
+                    throw new AiUnavailableException("AI-04 행동 코드 타입이 올바르지 않아요.");
+                }
+            }
+            return SIMULATION_JSON.treeToValue(data, SimulationReplyResult.class);
+        } catch (RestClientException | tools.jackson.core.JacksonException | IllegalArgumentException e) {
+            // 본문·대사·원인 예외를 저장하거나 로그에 남기지 않아요.
+            throw new AiUnavailableException("AI-04 호출 또는 응답 검증에 실패했어요.");
+        }
     }
 
     @Override

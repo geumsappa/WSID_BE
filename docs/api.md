@@ -32,7 +32,7 @@ URL의 `sessions`는 리소스 이름이에요. 로그인 세션 기능을 켜�
 | AI-01 | POST | `/internal/ai/discovery/next` | 내부 | fake 및 HTTP 어댑터·응답 계약 테스트 구현; 실제 FastAPI 통합 검증은 미완료 |
 | AI-02 | POST | `/internal/ai/ocr/extract` | 내부 | 어댑터 구현(`AiClient.extractText`, fake/HTTP multipart); TRN-05 연결·AI 서비스 통합 검증 미완료 |
 | AI-03 | POST | `/internal/ai/scenarios/generate` | 내부 | fake/HTTP 클라이언트·엄격한 응답 타입 검사·요청 ID·전용 타임아웃 구현. FastAPI·훈련 생성/저장은 미연결. [구현 안내](ai-03-scenario.md) |
-| AI-04 | POST | `/internal/ai/simulation/reply` | 내부 | 어댑터 구현; 실제 호출은 /internal/training/turn으로 불일치, 맥락 필드 TODO |
+| AI-04 | POST | `/internal/ai/simulation/reply` | 내부 | 새 replySimulation fake/HTTP 클라이언트·응답 타입 검사·계약 테스트 구현. 기존 훈련 서비스는 옛 /internal/training/turn 유지, FastAPI·TRN-08 전환 미완료. [구현 보고서](ai-04-simulation.md) |
 | AI-05 | POST | `/internal/ai/training/evaluate` | 내부 | 미구현; report 문서 계획 |
 | AI-06 | POST | `/internal/ai/solutions/extract` | 내부 | 미구현; AiClient TODO |
 | AI-07 | POST | `/internal/ai/solutions/explain` | 내부 | 미구현; 문서는 I6 근거 검색으로 설명 |

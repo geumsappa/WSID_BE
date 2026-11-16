@@ -4,6 +4,8 @@ import com.wsid.ai.dto.OcrExtractResult;
 import com.wsid.ai.dto.OcrImage;
 import com.wsid.ai.dto.ScenarioGenerateRequest;
 import com.wsid.ai.dto.ScenarioGenerateResult;
+import com.wsid.ai.dto.SimulationReplyRequest;
+import com.wsid.ai.dto.SimulationReplyResult;
 import com.wsid.ai.dto.TrainingTurnRequest;
 import com.wsid.ai.dto.TrainingTurnSuggestion;
 import java.util.List;
@@ -13,6 +15,22 @@ import java.util.List;
  * 항상 같은 입력에 같은 답을 돌려줘요.
  */
 public class FakeAiClient implements AiClient {
+
+    /** 개발용 키워드 분류. 실제 분석·가드레일을 검증하는 구현은 아니에요. */
+    @Override
+    public SimulationReplyResult replySimulation(SimulationReplyRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("역할극 응답 요청이 필요해요.");
+        }
+        String input = request.userInput();
+        if (input.contains("[AI_FAIL]")) {
+            throw new AiUnavailableException("가짜 AI-04 실패");
+        }
+        List<String> actions = input.contains("공식") && input.contains("확인")
+                ? List.of("OFFICIAL_CHANNEL_CHECK") : List.of();
+        return new SimulationReplyResult(
+                "알겠습니다. 확인하신 뒤에 말씀해 주세요.", actions, input.contains("[AI_FINISH]"), null);
+    }
 
     /** 개발 전용. 사용자 원문을 재출력하지 않고 알려진 역할만 반영해요. */
     @Override

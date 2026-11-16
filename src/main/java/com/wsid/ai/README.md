@@ -11,7 +11,7 @@ AI 서비스(FastAPI)를 부르는 유일한 통로예요. 다른 패키지는 `
 | I1 | 일상 대화: 후속 질문, 사실·위험 요소 추출, 판단 지점 선정, OCR | SIM-001, 002, 004 | AI-01 fake/HTTP 어댑터 구현; 위험 요소·판단 지점·OCR은 후속 작업 |
 | AI-02 | POST | `/internal/ai/ocr/extract` | 내부 | 어댑터 구현(`AiClient.extractText`, fake/HTTP multipart); TRN-05 연결·AI 서비스 통합 검증 미완료 |
 | I2 | 개인화 시나리오 생성 | SIM-005 | AI-03 fake/HTTP 클라이언트 구현. 실제 FastAPI·훈련 저장 연결은 미완료 |
-| I3 | 가상 훈련 한 턴: 다음 대사, 행동 판정, 핵심 장면 제안, 가드레일 | SIM-007, 008, 011 | fake/HTTP 어댑터 구현, 목표 경로·맥락 연결은 미완료 |
+| I3 | 가상 훈련 한 턴: 다음 대사, 행동 판정, 핵심 장면 제안, 가드레일 | SIM-007, 008, 011 | AI-04 새 클라이언트 구현. 기존 서비스 전환·실제 가드레일·핵심 장면 맥락 연결은 미완료 |
 | I4 | 리포트 평가 | SIM-010 | 미구현 |
 | I5 | 피해 사실 추출 | SOL-003 | 미구현 |
 | I6 | 공식 근거 문단 검색 | SOL-004 | 미구현 |
@@ -28,12 +28,12 @@ AI-01 개발 흐름과 요청·응답 초안은 [상황 파악 다음 질문 개
 | AI-01 | POST | `/internal/ai/discovery/next` | 내부 | fake 및 HTTP 어댑터·응답 계약 테스트 구현; 실제 FastAPI 통합 검증은 미완료 |
 | AI-02 | POST | `/internal/ai/ocr/extract` | 내부 | 어댑터 구현(`AiClient.extractText`, fake/HTTP multipart); TRN-05 연결·AI 서비스 통합 검증 미완료 |
 | AI-03 | POST | `/internal/ai/scenarios/generate` | 내부 | fake/HTTP 클라이언트·응답 타입 검사·요청 ID·전용 타임아웃 구현. 실제 FastAPI·TRN-06 연결은 미완료 |
-| AI-04 | POST | `/internal/ai/simulation/reply` | 내부 | 어댑터 구현; 실제 호출은 /internal/training/turn으로 불일치, 맥락 필드 TODO |
+| AI-04 | POST | `/internal/ai/simulation/reply` | 내부 | replySimulation fake/HTTP 클라이언트·엄격한 응답 검사 구현. 기존 훈련 서비스는 옛 메서드·경로 유지, 실제 FastAPI·서비스 전환 미완료 |
 | AI-05 | POST | `/internal/ai/training/evaluate` | 내부 | 미구현; report 문서 계획 |
 | AI-06 | POST | `/internal/ai/solutions/extract` | 내부 | 미구현; AiClient TODO |
 | AI-07 | POST | `/internal/ai/solutions/explain` | 내부 | 미구현; 문서는 I6 근거 검색으로 설명 |
 
-현재 HTTP 어댑터는 `/internal/training/turn`을 호출해 목표 AI-04 경로와 달라요. 실제 AI 서비스와의 통합 검증은 완료되지 않았어요. AI-01은 확인된 사실을 매번 누적·전달해요. 개인화 시나리오 생성 연결은 후속 작업이에요. 훈련 응답 요청에도 사실·시나리오·필요한 최근 대화를 넣어야 하나 현재 DTO에는 TODO예요.
+새 `replySimulation`은 목표 AI-04 경로를 호출해요. 현재 훈련 서비스는 이전 `suggestTrainingTurn`과 `/internal/training/turn`을 계속 사용해요. 실제 AI 서비스 통합과 시나리오 저장·이력 구성·서비스 전환은 후속 작업이에요. 새 DTO에 시나리오·최근 대화를 담을 수 있지만 기존 서비스가 자동으로 이 맥락을 전달하지는 않아요.
 
 ## AI-02 OCR 계약
 
@@ -49,7 +49,7 @@ AI-01 개발 흐름과 요청·응답 초안은 [상황 파악 다음 질문 개
 - 원본 이미지는 호출 동안 메모리에만 두고 DB·디스크·로그에 남기지 않아요. `OcrImage`·`OcrExtractResult`의 `toString`은 바이트와 인식 문자를 출력하지 않아요.
 - `FakeAiClient`는 파일 이름에 `ocr-fail`이 있으면 실패 결과를 돌려줘요.
 
-AI-02는 범용 껍데기 `AiEnvelope<T>`를 써요. AI-01은 필드를 엄격히 검사하는 `DiscoveryEnvelope`를 따로 써요. AI-04 어댑터는 껍데기 없는 본문을 기대하므로 경로 전환 때 같이 맞춰요.
+AI-02는 범용 껍데기 `AiEnvelope<T>`를 써요. AI-01은 필드를 엄격히 검사하는 `DiscoveryEnvelope`를 따로 써요. 새 AI-04는 `JsonNode`로 성공 봉투를 검사한 뒤 data를 변환하고, 기존 훈련 메서드는 여전히 껍데기 없는 본문을 받아요.
 
 ## AI-03 시나리오 생성 계약
 
@@ -64,6 +64,20 @@ AI-02는 범용 껍데기 `AiEnvelope<T>`를 써요. AI-01은 필드를 엄격�
 - AI-03용 `scenarioRestClient`는 `wsid.ai.scenario-read-timeout`을 사용해요. `AI_SCENARIO_READ_TIMEOUT`으로 조정하며 기본은 20초예요. 다른 AI API의 응답 제한은 유지해요.
 - fake는 역할별 고정 가상 설명과 예시 코드 `BANK_NOTICE`를 반환해요. 실제 모의 화면이나 검토 완료 콘텐츠를 제공하는 것은 아니에요.
 - 기존 training의 `USED_GOODS_TRADE`는 새 요청에서 거부해요. 후속 연결 시 명시적인 코드 매핑 또는 데이터 호환 처리가 필요해요.
+
+## AI-04 역할극 응답 계약
+
+자세한 처리 흐름과 파일별 후속 작업은 [AI-04 구현 보고서](../../../../../../docs/ai-04-simulation.md)를 참고해요.
+
+- 새 메서드는 `AiClient.replySimulation(SimulationReplyRequest)`예요. 기존 `suggestTrainingTurn`은 훈련 서비스 전환 전까지 유지해요.
+- 요청은 시나리오 title·description, 이전 이력 messages, 현재 userInput, 현재 turnCount예요. 요청 ID는 JSON에서 제외하고 `X-Request-Id`로 보내요.
+- 이력은 user/assistant 최대 20개·각 1,000자, 현재 입력도 1,000자 이하예요. 이력 선택·긴 과거 대사 제외는 후속 서비스의 책임이에요.
+- 응답의 success·shouldFinish는 실제 boolean, reply는 문자열, recognizedActions는 문자열 배열이어야 해요. `JsonNode`에서 타입을 확인한 뒤 DTO로 변환해요.
+- 대사는 1,000자 이하, 행동은 최대 10개·각 `[A-Z0-9_]{1,100}`이에요. 모르는 코드·중복은 유지하고 training에서 의미를 매핑해야 해요.
+- `mockPage`는 필수 필드이며 현재 명시적 null만 지원해요. FastAPI에서도 null 필드를 생략하면 안 돼요.
+- `shouldFinish`는 제안만 반환하며 서버 종료·DB 저장은 수행하지 않아요. 가드레일 통과나 실제 이벤트 수행을 뜻하지 않아요.
+- 기존 훈련용 restClient와 readTimeout을 사용해요. AI-03 전용 제한과 분리돼요.
+- fake는 공식·확인 키워드, `[AI_FAIL]`, `[AI_FINISH]`로 개발 흐름을 재현해요. LLM 품질 검증이나 운영 안전성 보장은 아니에요.
 
 ## 파일
 

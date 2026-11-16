@@ -16,7 +16,7 @@
 | 일상 정보에서 위험 요소 추출 | SIM-002 · I1 | 상 | 사실 누적 구현, 위험 요소 추출은 후속 작업 | `context_facts` 컬럼 |
 | 훈련할 판단 지점 선정 | SIM-004 · I1 | 상 | 미구현 | - |
 | 개인화 시나리오 생성 | SIM-005 · I2 | 상 | AI-03 클라이언트 구현, 훈련 연결은 미완료. 현재 기본 유형 자동 시작 | `scenario_json` 컬럼 |
-| 사용자 답변에 맞춘 대화 | SIM-007 · I3 | 상 | fake/HTTP 어댑터 연결, 맥락 전달 미완료 | `TrainingService.submitTurn` |
+| 사용자 답변에 맞춘 대화 | SIM-007 · I3 | 상 | 새 AI-04 클라이언트 구현, 서비스는 옛 호출 유지·맥락 연결 미완료 | `TrainingService.submitTurn` |
 | 대응 행동 판정 | SIM-008 · I3 | 상 | 분류 저장까지 구현 | `UserAction`, `training_messages.action_code` |
 | 핵심 장면 전개 | SIM-011 · I3 | 상 | 구현 (선택지 표시는 미구현) | `TrainingSession.applyTurn` |
 | 가드레일 적용 | SIM-006, 007 | 상 | AI 검사 결과 플래그에 따른 대체 구현; 실제 출력 검사 연동 미검증 | `TurnInput.replyUsable` |
@@ -47,7 +47,7 @@
 | TRN-05 | POST | `/api/trainings/{id}/discovery/images` | 필요 | 미구현; 파일 제한 검증·임시 보관·삭제 구현 필요 |
 | TRN-06 | POST | `/api/trainings/{id}/scenario` | 필요 | 별도 API 없음; 기본 유형 고정 |
 | TRN-07 | POST | `/api/trainings/{id}/start` | 필요 | 별도 API 없음; finishDiscovery가 beginSimulation 직접 호출 |
-| TRN-08 | POST | `/api/trainings/{id}/messages` | 필요 | 새 경로·단계 검사 구현; 기존 AI-04 HTTP 경로·맥락 TODO 유지 |
+| TRN-08 | POST | `/api/trainings/{id}/messages` | 필요 | 새 공개 경로·단계 검사 구현. 새 AI-04 replySimulation 전환·시나리오/이력 구성은 후속, 현재 옛 호출 유지 |
 | TRN-09 | GET | `/api/trainings/{id}/mock-page` | 필요 | 템플릿 코드 컬럼만; 응답 DTO·조회 없음 |
 | TRN-10 | POST | `/api/trainings/{id}/actions` | 필요 | InputKind.ACTION·JSON 컬럼만; API·동작 없음 |
 | TRN-11 | POST | `/api/trainings/{id}/finish` | 필요 | 자동 종료만 있음; 직접 종료·리포트 생성·API 없음 |
@@ -69,6 +69,8 @@ AI-01 연동과 사실 누적·실패 처리 계획은 [상황 파악 다음 질
 이전 사실·시나리오·필요한 최근 대화는 다음 AI 요청에 전달해야 해요. `contextFacts` 누적과 AI-01 대화 이력 전달을 구현했어요. AI-03 호출 클라이언트는 구현했지만 `scenarioJson` 생성·저장을 훈련에 연결하는 작업과 AI-04용 `TrainingTurnRequest`의 맥락 필드는 여전히 TODO예요. [AI-03 구현·연결 안내](../../../../../../docs/ai-03-scenario.md)에 역할·상태 분기·저장·코드 호환성 작업을 정리했어요.
 
 현재는 TRN-06·07 구현 전이므로 READY·DEFAULT_SCENARIO에서 고정 유형 자동 시작을 사용해요. 안내와 첫 대사를 함께 저장·응답하는 임시 처리예요.
+
+새 AI-04 `replySimulation` 클라이언트는 시나리오·이력 요청과 행동 배열·종료 제안 응답을 지원하지만, `TrainingService.askAi`는 아직 이전 메서드를 사용해요. [AI-04 구현 보고서](../../../../../../docs/ai-04-simulation.md)에 파일별 연결 작업, 긴 과거 이력 제외·최근 20개 선택·행동 집합·조기 종료·Mockito 설정을 정리했어요.
 
 ## 파일
 

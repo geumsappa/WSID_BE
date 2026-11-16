@@ -8,5 +8,7 @@
 | [AI-02 OCR 추출 개발·연결 설계](ai-02-ocr.md) | Spring 클라이언트를 어떻게 만들었는지, FastAPI 예시 코드와 HTTP 계약, 경우별 처리 확인 |
 | [AI-03 개인화 훈련 시나리오 생성 구현 계획서](ai-03-scenario-plan.md) | 구현 범위·API 계약·Spring/FastAPI 역할·훈련 연결 순서·검증 계획 확인 |
 | [AI-03 시나리오 생성 구현·연결 안내](ai-03-scenario.md) | 구현한 코드·DTO·HTTP 검증·설정·관련 코드의 역할·FastAPI 및 훈련 연결 작업·검증 결과 확인 |
+| [AI-04 역할극 응답·행동 분석 구현 계획서](ai-04-simulation-plan.md) | 새 내부 API 계약·기존 코드 전환·행동/종료/모의 페이지 정책·Spring/FastAPI 역할·검증 계획 확인 |
+| [AI-04 구현 보고서와 연동 개발 안내](ai-04-simulation.md) | 구현한 DTO·HTTP 처리·테스트 결과와 파일별 상호작용, 이후 서비스·DB·FastAPI 개발 시 참고사항 확인 |
 
 AI-01을 개발하거나 다른 팀의 FastAPI·DB와 연결할 때는 연결 설계를 먼저 읽고, 필드·규칙은 개발·검증 안내와 API 기준을 함께 확인해요. 현재 FastAPI 저장소는 이 프로젝트에 없으므로 연결 설계의 Python 파일 구조는 역할을 설명하기 위한 제안이에요.
