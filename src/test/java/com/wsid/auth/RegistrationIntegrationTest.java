@@ -1,0 +1,398 @@
+package com.wsid.auth;
+
+import com.wsid.WsidApplication;
+import com.wsid.auth.domain.UserStatus;
+import com.wsid.auth.mail.VerificationMailSender;
+import com.wsid.auth.repository.UserRepository;
+import com.wsid.auth.repository.VerificationCodeStore;
+import com.wsid.common.error.ApiException;
+import com.wsid.common.error.ErrorCode;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.HexFormat;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.core.env.Environment;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+
+@Tag("integration")
+@ActiveProfiles("local")
+@SpringBootTest(classes = WsidApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+class RegistrationIntegrationTest {
+    private static final String NAMESPACE = "wsid:test:registration:" + UUID.randomUUID();
+    private static final String PASSWORD = "examplePassword!1";
+    @Autowired Environment environment;
+    @Autowired UserRepository users;
+    @Autowired StringRedisTemplate redis;
+    @Autowired JdbcTemplate jdbc;
+    @MockitoSpyBean VerificationCodeStore codes;
+    @Autowired PasswordEncoder encoder;
+    @MockitoBean VerificationMailSender mail;
+    private final ObjectMapper json = new ObjectMapper();
+    private final Map<String, String> delivered = new ConcurrentHashMap<>();
+    private final List<String> addresses = new ArrayList<>();
+    private HttpClient client;
+
+    @DynamicPropertySource
+    static void properties(DynamicPropertyRegistry registry) {
+        registry.add("wsid.auth.redis-namespace", () -> NAMESPACE);
+        registry.add("spring.session.data.redis.namespace", () -> NAMESPACE + ":login");
+        registry.add("wsid.auth.resend-interval", () -> "60s");
+        registry.add("wsid.auth.max-sends", () -> 3);
+        registry.add("wsid.auth.max-attempts-per-code", () -> 3);
+        registry.add("wsid.auth.max-attempts-per-window", () -> 4);
+    }
+
+    @BeforeEach
+    void prepare() {
+        client = HttpClient.newHttpClient();
+        doAnswer(invocation -> {
+            delivered.put(invocation.getArgument(0), invocation.getArgument(1));
+            return null;
+        }).when(mail).send(anyString(), anyString(), any(Duration.class));
+    }
+
+    @AfterEach
+    void cleanup() {
+        client.close();
+        for (String email : addresses) users.findByEmail(email).ifPresent(users::delete);
+        var keys = redis.keys(NAMESPACE + ":*");
+        if (keys != null && !keys.isEmpty()) redis.delete(keys); // 테스트 전용 namespace만 삭제
+    }
+
+    @Test
+    void signupStoresHashAndVerificationActivatesOnce() throws Exception {
+        String email = address();
+        var created = signup("  " + email.toUpperCase(java.util.Locale.ROOT) + "  ");
+        assertEquals(201, created.statusCode());
+        JsonNode data = json.readTree(created.body()).path("data");
+        assertTrue(json.readTree(created.body()).path("success").asBoolean());
+        assertEquals(email, data.path("email").asText());
+        assertEquals("PENDING", data.path("status").asText());
+        assertTrue(data.path("verificationRequired").asBoolean());
+        assertFalse(created.body().contains("password"));
+        var user = users.findByEmail(email).orElseThrow();
+        assertTrue(encoder.matches(PASSWORD, user.getPasswordHash()));
+        assertEquals("MALE", user.getGender());
+        String code = delivered.get(email);
+        assertTrue(code.matches("[0-9]{6}"));
+        String hash = redis.opsForValue().get(key(email, "code"));
+        assertNotEquals(code, hash);
+        assertTrue(encoder.matches(code, hash));
+        assertTrue(redis.getExpire(key(email, "code")) > 0);
+
+        var verified = verifyCode(email, code);
+        assertEquals(200, verified.statusCode());
+        assertEquals("ACTIVE", json.readTree(verified.body()).path("data").path("status").asText());
+        user = users.findByEmail(email).orElseThrow();
+        assertTrue(user.canLogin());
+        assertNotNull(user.getEmailVerifiedAt());
+        assertFalse(Boolean.TRUE.equals(redis.hasKey(key(email, "code"))));
+        assertError(verifyCode(email, code), 400, "VERIFICATION_CODE_EXPIRED");
+        assertError(signup(email), 409, "EMAIL_ALREADY_EXISTS");
+    }
+
+    @Test
+    void loginRequiresVerifiedEmailAndSessionCheckRestoresUserFromCookie() throws Exception {
+        String email = address();
+        var credentials = Map.of("email", email, "password", PASSWORD);
+        var guest = session(null);
+        assertError(guest, 401, "LOGIN_REQUIRED");
+        assertTrue(guest.headers().firstValue("Set-Cookie").isEmpty());
+        assertEquals(201, signup(email).statusCode());
+        var pending = post("/login", credentials);
+        assertError(pending, 403, "EMAIL_NOT_VERIFIED");
+        assertTrue(pending.headers().firstValue("Set-Cookie").isEmpty());
+        assertEquals(200, verifyCode(email, delivered.get(email)).statusCode());
+        assertError(post("/login", Map.of("email", email, "password", "incorrect")), 401, "INVALID_CREDENTIALS");
+
+        var loggedIn = post("/login", credentials);
+        assertEquals(200, loggedIn.statusCode(), loggedIn.body());
+        var loginData = json.readTree(loggedIn.body()).path("data");
+        var userId = users.findByEmail(email).orElseThrow().getId().longValue();
+        assertEquals(userId, loginData.path("user").path("id").asLong());
+        assertEquals(email, loginData.path("user").path("email").asText());
+        assertFalse(loginData.has("authenticated"));
+        String cookie = loggedIn.headers().firstValue("Set-Cookie").orElseThrow();
+        assertTrue(cookie.startsWith("SESSION="));
+        assertTrue(cookie.contains("HttpOnly"));
+        String sessionCookie = cookie.split(";", 2)[0];
+        var restored = session(sessionCookie);
+        assertEquals(200, restored.statusCode(), restored.body());
+        var data = json.readTree(restored.body()).path("data");
+        assertTrue(data.path("authenticated").asBoolean());
+        assertEquals(loginData.path("user"), data.path("user"));
+        assertError(session(null), 401, "LOGIN_REQUIRED");
+
+        var profile = getWithCookie("/api/users/me", sessionCookie);
+        assertEquals(200, profile.statusCode(), profile.body());
+        var profileData = json.readTree(profile.body()).path("data");
+        assertEquals(email, profileData.path("email").asText());
+        assertEquals("ACTIVE", profileData.path("status").asText());
+        assertEquals(userId, profileData.path("id").asLong());
+        assertFalse(profileData.has("userId"));
+        assertFalse(profileData.has("emailVerifiedAt"));
+        assertFalse(profileData.has("passwordHash"));
+
+        assertError(logout(null, Map.of()), 401, "LOGIN_REQUIRED");
+        assertEquals(403, logout(sessionCookie, Map.of()).statusCode());
+        assertEquals(200, session(sessionCookie).statusCode());
+        var csrf = getWithCookie("/api/auth/csrf", sessionCookie);
+        assertEquals(200, csrf.statusCode(), csrf.body());
+        var csrfData = json.readTree(csrf.body()).path("data");
+        var loggedOut = logout(sessionCookie, Map.of(csrfData.path("headerName").asText(),
+                csrfData.path("token").asText()));
+        assertEquals(204, loggedOut.statusCode(), loggedOut.body());
+        assertTrue(loggedOut.headers().firstValue("Set-Cookie").orElseThrow().contains("Max-Age=0"));
+        assertError(session(sessionCookie), 401, "LOGIN_REQUIRED");
+        assertError(getWithCookie("/api/users/me", sessionCookie), 401, "LOGIN_REQUIRED");
+    }
+
+    private HttpResponse<String> logout(String cookie, Map<String, String> headers) throws Exception {
+        var request = request("/api/auth/logout", cookie).POST(HttpRequest.BodyPublishers.noBody());
+        headers.forEach(request::header);
+        return client.send(request.build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    @Test
+    void trainingUsesSessionOwnerEvenOnLocalProfile() throws Exception {
+        String path = "/api/training/sessions";
+        assertError(getWithCookie(path + "/active", null), 401, "LOGIN_REQUIRED");
+        String owner = activeCookie(address());
+        String other = activeCookie(address());
+        var start = request(path, owner).POST(HttpRequest.BodyPublishers.noBody());
+        assertEquals(403, client.send(start.build(), HttpResponse.BodyHandlers.ofString()).statusCode());
+
+        var csrf = getWithCookie("/api/auth/csrf", owner);
+        assertEquals(200, csrf.statusCode(), csrf.body());
+        var token = json.readTree(csrf.body()).path("data");
+        var created = client.send(start.header(token.path("headerName").asText(), token.path("token").asText()).build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertEquals(201, created.statusCode(), created.body());
+        long trainingId = json.readTree(created.body()).path("sessionId").asLong();
+        try {
+            assertEquals(200, getWithCookie(path + "/" + trainingId, owner).statusCode());
+            assertError(getWithCookie(path + "/" + trainingId, other), 404, "SESSION_NOT_FOUND");
+            assertEquals(204, getWithCookie(path + "/active", other).statusCode());
+        } finally {
+            jdbc.update("DELETE FROM training_messages WHERE training_id = ?", trainingId);
+            jdbc.update("DELETE FROM training_sessions WHERE id = ?", trainingId);
+        }
+    }
+
+    private String activeCookie(String email) throws Exception {
+        assertEquals(201, signup(email).statusCode());
+        assertEquals(200, verifyCode(email, delivered.get(email)).statusCode());
+        var login = post("/login", Map.of("email", email, "password", PASSWORD));
+        assertEquals(200, login.statusCode(), login.body());
+        return login.headers().firstValue("Set-Cookie").orElseThrow().split(";", 2)[0];
+    }
+
+    private HttpResponse<String> session(String cookie) throws Exception {
+        return getWithCookie("/api/auth/session", cookie);
+    }
+
+    private HttpResponse<String> getWithCookie(String path, String cookie) throws Exception {
+        return client.send(request(path, cookie).GET().build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private HttpRequest.Builder request(String path, String cookie) {
+        var request = HttpRequest.newBuilder(URI.create("http://localhost:"
+                + environment.getProperty("local.server.port") + path)).timeout(Duration.ofSeconds(20));
+        if (cookie != null) {
+            request.header("Cookie", cookie);
+        }
+        return request;
+    }
+
+    @Test
+    void rejectsInvalidInputsWithoutSendingMail() throws Exception {
+        String email = address();
+        assertError(post("/signup", Map.of("email", "not-an-email", "password", PASSWORD)), 400, "INVALID_REQUEST");
+        assertError(post("/signup", Map.of("email", email, "password", "short1")), 400, "INVALID_REQUEST");
+        assertError(post("/signup", Map.of("email", email, "password", "가".repeat(24) + "A1")), 400, "INVALID_REQUEST");
+        assertError(post("/signup", Map.of("email", email, "password", PASSWORD, "gender", "INVALID")), 400, "INVALID_REQUEST");
+        assertError(verifyCode(email, "abc"), 400, "INVALID_REQUEST");
+        assertFalse(users.existsByEmail(email));
+        verifyNoInteractions(mail);
+    }
+
+    @Test
+    void resendRevokesOldHashAndEnforcesCooldownAndWindow() throws Exception {
+        String email = address();
+        assertEquals(201, signup(email).statusCode());
+        String oldHash = redis.opsForValue().get(key(email, "code"));
+        assertError(resend(email), 429, "RATE_LIMIT_EXCEEDED");
+        assertEquals(oldHash, redis.opsForValue().get(key(email, "code")));
+        redis.delete(key(email, "cooldown"));
+        assertEquals(200, resend(email).statusCode());
+        String newHash = redis.opsForValue().get(key(email, "code"));
+        assertNotEquals(oldHash, newHash);
+        codes.removeMatching(email, oldHash); // 오래된 발송 실패 정리가 새 코드를 지우면 안 돼요.
+        assertEquals(newHash, redis.opsForValue().get(key(email, "code")));
+        redis.delete(key(email, "cooldown"));
+        assertEquals(200, resend(email).statusCode());
+        redis.delete(key(email, "cooldown"));
+        assertError(resend(email), 429, "RATE_LIMIT_EXCEEDED");
+        assertEquals(200, verifyCode(email, delivered.get(email)).statusCode());
+    }
+
+    @Test
+    void wrongCodeAttemptsRemainLimitedAfterResendAndExpiredCodeFails() throws Exception {
+        String email = address();
+        assertEquals(201, signup(email).statusCode());
+        String wrong = delivered.get(email).equals("000000") ? "999999" : "000000";
+        for (int i = 0; i < 3; i++) assertError(verifyCode(email, wrong), 400, "INVALID_VERIFICATION_CODE");
+        assertError(verifyCode(email, delivered.get(email)), 429, "RATE_LIMIT_EXCEEDED");
+        redis.delete(key(email, "cooldown"));
+        assertEquals(200, resend(email).statusCode());
+        wrong = delivered.get(email).equals("000000") ? "999999" : "000000";
+        assertError(verifyCode(email, wrong), 400, "INVALID_VERIFICATION_CODE");
+        assertError(verifyCode(email, delivered.get(email)), 429, "RATE_LIMIT_EXCEEDED");
+        assertEquals(UserStatus.PENDING, users.findByEmail(email).orElseThrow().getStatus());
+        redis.expire(key(email, "code"), Duration.ZERO);
+        assertError(verifyCode(email, delivered.get(email)), 400, "VERIFICATION_CODE_EXPIRED");
+    }
+
+    @Test
+    void resendHasSameResponseForUnknownAndActiveUsers() throws Exception {
+        String email = address();
+        assertEquals(201, signup(email).statusCode());
+        assertEquals(200, verifyCode(email, delivered.get(email)).statusCode());
+        redis.delete(key(email, "cooldown"));
+        String unknown = address();
+        var activeResponse = resend(email);
+        var unknownResponse = resend(unknown);
+        assertEquals(200, activeResponse.statusCode());
+        assertEquals(200, unknownResponse.statusCode());
+        assertEquals(activeResponse.body(), unknownResponse.body());
+        verify(mail, times(1)).send(anyString(), anyString(), any(Duration.class));
+    }
+
+    @Test
+    void mailFailureLeavesPendingUserAndAllowsResendRecovery() throws Exception {
+        String email = address();
+        doThrow(new ApiException(ErrorCode.MAIL_SERVICE_UNAVAILABLE)).when(mail)
+                .send(eq(email), anyString(), any(Duration.class));
+        assertError(signup(email), 503, "MAIL_SERVICE_UNAVAILABLE");
+        assertEquals(UserStatus.PENDING, users.findByEmail(email).orElseThrow().getStatus());
+        assertFalse(Boolean.TRUE.equals(redis.hasKey(key(email, "code"))));
+        doAnswer(invocation -> { delivered.put(email, invocation.getArgument(1)); return null; })
+                .when(mail).send(eq(email), anyString(), any(Duration.class));
+        redis.delete(key(email, "cooldown"));
+        assertEquals(200, resend(email).statusCode());
+        assertEquals(200, verifyCode(email, delivered.get(email)).statusCode());
+    }
+
+    @Test
+    void concurrentVerificationsOnlyActivateOnce() throws Exception {
+        String email = address();
+        assertEquals(201, signup(email).statusCode());
+        String code = delivered.get(email);
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var first = executor.submit(() -> verifyCode(email, code));
+            var second = executor.submit(() -> verifyCode(email, code));
+            List<Integer> statuses = new ArrayList<>(List.of(first.get().statusCode(), second.get().statusCode()));
+            statuses.sort(Integer::compareTo);
+            assertEquals(List.of(200, 400), statuses);
+        }
+        assertEquals(UserStatus.ACTIVE, users.findByEmail(email).orElseThrow().getStatus());
+    }
+
+    @Test
+    void concurrentSignupCreatesOneUserAndOneEmail() throws Exception {
+        String email = address();
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var first = executor.submit(() -> signup(email));
+            var second = executor.submit(() -> signup(email));
+            List<Integer> statuses = List.of(first.get().statusCode(), second.get().statusCode());
+            assertEquals(1, statuses.stream().filter(s -> s == 201).count());
+            assertTrue(statuses.stream().allMatch(s -> s == 201 || s == 409 || s == 429));
+        }
+        assertTrue(users.existsByEmail(email));
+        verify(mail, times(1)).send(eq(email), anyString(), any(Duration.class));
+    }
+
+    @Test
+    void redisFailureDoesNotActivateUserAndCanBeRetried() throws Exception {
+        String email = address();
+        assertEquals(201, signup(email).statusCode());
+        doThrow(new ApiException(ErrorCode.AUTH_SERVICE_UNAVAILABLE)).when(codes).beginAttempt(email);
+        assertError(verifyCode(email, delivered.get(email)), 503, "AUTH_SERVICE_UNAVAILABLE");
+        assertEquals(UserStatus.PENDING, users.findByEmail(email).orElseThrow().getStatus());
+        doCallRealMethod().when(codes).beginAttempt(email);
+        assertEquals(200, verifyCode(email, delivered.get(email)).statusCode());
+    }
+
+    @Test
+    void cleanupFailureAfterCommitCannotMakeCodeReusable() throws Exception {
+        String email = address();
+        assertEquals(201, signup(email).statusCode());
+        doThrow(new ApiException(ErrorCode.AUTH_SERVICE_UNAVAILABLE)).when(codes).removeMatching(eq(email), anyString());
+        assertEquals(200, verifyCode(email, delivered.get(email)).statusCode());
+        assertTrue(Boolean.TRUE.equals(redis.hasKey(key(email, "code"))));
+        assertEquals(UserStatus.ACTIVE, users.findByEmail(email).orElseThrow().getStatus());
+        assertError(verifyCode(email, delivered.get(email)), 400, "VERIFICATION_CODE_EXPIRED");
+    }
+
+    private String address() {
+        String email = "auth-test-" + UUID.randomUUID() + "@example.com";
+        addresses.add(email);
+        return email;
+    }
+
+    private String key(String email, String suffix) throws Exception {
+        String digest = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                .digest(email.getBytes(StandardCharsets.UTF_8)));
+        return NAMESPACE + ":{" + digest + "}:" + suffix;
+    }
+
+    private HttpResponse<String> signup(String email) throws Exception {
+        return post("/signup", Map.of("email", email, "password", PASSWORD, "gender", "MALE"));
+    }
+    private HttpResponse<String> resend(String email) throws Exception {
+        return post("/email/resend", Map.of("email", email));
+    }
+    private HttpResponse<String> verifyCode(String email, String code) throws Exception {
+        return post("/email/verify", Map.of("email", email, "code", code));
+    }
+    private HttpResponse<String> post(String path, Object body) throws Exception {
+        return client.send(HttpRequest.newBuilder(URI.create("http://localhost:"
+                        + environment.getProperty("local.server.port") + "/api/auth" + path))
+                .timeout(Duration.ofSeconds(20)).header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(body))).build(),
+                HttpResponse.BodyHandlers.ofString());
+    }
+    private void assertError(HttpResponse<String> response, int status, String code) {
+        assertEquals(status, response.statusCode(), response.body());
+        assertEquals(code, json.readTree(response.body()).path("code").asText());
+    }
+}

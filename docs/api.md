@@ -9,7 +9,7 @@
 - 피해 대응 상담(SOL)은 로그인하지 않아도 시작할 수 있어요. 복원·메시지·사실 수정·종료는 해당 상담의 소유자만 할 수 있어요. 비회원 소유자 식별 방법과 저장 구조는 구현 전에 확정해야 해요. 상담 ID만 안다고 다른 상담을 조회할 수 있게 만들지 않아요.
 - GUIDE는 공개 조회예요. 내부 AI API는 Spring과 AI 서비스 사이의 호출이며 사용자에게 직접 공개하지 않아요.
 - AUTH-05는 기존 로그인 상태 확인용 GET이에요. 로그인 세션을 새로 생성하거나 토큰을 발급하지 않아요. 로그인 세션이 없거나 만료되면 401을 반환하는 계약으로 만들어요.
-- 로그인 성공 시 세션 쿠키를 발급하고, 로그아웃 시 서버 로그인 세션과 쿠키를 폐기해요. 로그인 세션 만료 시간·쿠키 설정·저장소는 별도로 정해요. 훈련 무활동 24시간 초안과 별개예요.
+- 로그인 성공 시 세션 쿠키를 발급해요. 저장 기반은 Spring Session Redis이고 SESSION 쿠키(HttpOnly, SameSite=Lax)를 사용해요. Secure는 기본 true, local HTTP에서만 false예요. 로그인 세션 무활동 만료 기본값은 30분이에요. 로그아웃하면 서버 세션과 쿠키를 폐기해요.
 
 ## 이름과 식별자
 
@@ -41,13 +41,25 @@ URL의 `sessions`는 리소스 이름이에요. 로그인 세션 기능을 켜�
 
 | API ID | 메서드 | 경로 | 인증 | 현재 구현 |
 |---|---|---|---|---|
-| AUTH-01 | POST | `/api/auth/signup` | 불필요 | User.signUp만; API·서비스 없음 |
-| AUTH-02 | POST | `/api/auth/email/resend` | 불필요 | 미구현; 인증 코드 저장소도 아직 없음 |
-| AUTH-03 | POST | `/api/auth/email/verify` | 불필요 | User.verifyEmail만; 코드 확인·API 없음 |
-| AUTH-04 | POST | `/api/auth/login` | 불필요 | 세션 방식 계획 일치; 로그인 구현 없음 |
-| AUTH-05 | GET | `/api/auth/session` | 필요 | 목표 API 문서화; 실제 세션 확인 API는 미구현 |
-| AUTH-06 | POST | `/api/auth/logout` | 필요 | 미구현; 문서에는 세션 폐기 계획 |
-| AUTH-07 | GET | `/api/users/me` | 필요 | 목표 API 문서화; 실제 회원정보 API는 미구현 |
+| AUTH-01 | POST | `/api/auth/signup` | 불필요 | 구현. 가입 신청 및 인증 메일 발송 |
+| AUTH-02 | POST | `/api/auth/email/resend` | 불필요 | 구현. 인증번호 재발송 |
+| AUTH-03 | POST | `/api/auth/email/verify` | 불필요 | 구현. 인증번호 확인 및 계정 활성화 |
+| AUTH-04 | POST | `/api/auth/login` | 불필요 | 구현. 이메일과 비밀번호로 로그인하고 세션 쿠키 발급 |
+| AUTH-05 | GET | `/api/auth/session` | 필요 | 구현. 기존 세션으로 로그인 상태 확인 |
+| AUTH-06 | POST | `/api/auth/logout` | 필요 | 구현. 서버 세션과 쿠키 폐기 |
+| AUTH-07 | GET | `/api/users/me` | 필요 | 구현. 로그인한 회원 정보 반환 |
+
+AUTH-04는 JSON의 `email`, `password`를 받아 활성 계정에 `SESSION` 쿠키를 발급해요. 비밀번호가 틀리거나 이메일이 등록되지 않았으면 401 `INVALID_CREDENTIALS`, 올바른 비밀번호를 입력했지만 이메일 인증 전이면 403 `EMAIL_NOT_VERIFIED`를 반환해요.
+
+AUTH-04의 성공 응답은 `data.user`에 `id`, `email`, `gender`를 담아요. AUTH-05의 성공 응답은 같은 `data.user`와 `data.authenticated: true`를 담아요. 세션이 없거나 만료되면 401 `LOGIN_REQUIRED`를 반환해요.
+
+AUTH-06은 본문 없이 호출해요. 먼저 세션 쿠키로 `GET /api/auth/csrf`를 호출해 `data.headerName`, `data.token`을 받고, 로그아웃 요청에 해당 헤더를 넣어요. 토큰이 없거나 유효하지 않으면 403, 성공하면 204를 반환하고 세션 쿠키를 만료시켜요. 이 토큰 전달 방식은 노션에서 미정이므로 팀 확인이 필요해요.
+
+AUTH-07은 `data`에 `id`, `email`, `gender`, `status`, `createdAt`을 반환해요. 두 API 모두 로그인 세션이 없으면 401 `LOGIN_REQUIRED`를 반환해요.
+
+가입·인증·로그인 POST는 JSON을 받아요. 브라우저에서 실서버를 연동할 때는 프론트와 `/api`를 같은 출처로 제공하는 구성을 사용할 수 있어요.
+
+현재 구현된 `/api/training/**`는 로컬에서도 로그인 세션으로 소유자를 확인해요. 변경 요청은 로그아웃과 같은 CSRF 헤더를 요구해요. 인증 없이 조회하면 401, 다른 회원의 훈련을 조회하면 404를 반환해요.
 
 ## 유형·가이드
 

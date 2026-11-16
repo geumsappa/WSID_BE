@@ -4,20 +4,41 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
+import org.springframework.security.web.csrf.CsrfFilter;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 
 @Configuration
 public class SecurityConfig {
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    HttpSessionSecurityContextRepository securityContextRepository() {
+        return new HttpSessionSecurityContextRepository();
+    }
+
+    @Bean
+    SecurityFilterChain securityFilterChain(HttpSecurity http,
+            HttpSessionSecurityContextRepository securityContextRepository) throws Exception {
+        var logout = PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/auth/logout");
+        var training = PathPatternRequestMatcher.withDefaults().matcher("/api/training/**");
+        var trainings = PathPatternRequestMatcher.withDefaults().matcher("/api/trainings/**");
         http
-            // TODO(AUTH): 세션 로그인을 붙일 때 CSRF 정책을 정해요. 지금은 API 개발을 위해 꺼 둔 상태예요.
-            .csrf(csrf -> csrf.disable())
+            .securityContext(context -> context.securityContextRepository(securityContextRepository))
+            // 비로그인 요청의 401은 인증 API와 훈련 서비스가 반환해요.
+            .csrf(csrf -> csrf.requireCsrfProtectionMatcher(request -> {
+                var authentication = SecurityContextHolder.getContext().getAuthentication();
+                return authentication != null && authentication.isAuthenticated()
+                        && authentication.getPrincipal() instanceof Long
+                        && (logout.matches(request)
+                            || ((training.matches(request) || trainings.matches(request))
+                                && CsrfFilter.DEFAULT_CSRF_MATCHER.matches(request)));
+            }))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(HttpMethod.GET, "/api/guides/fraud-types").permitAll()
-                .requestMatchers("/api/auth/**", "/api/training/**", "/api/trainings/**", "/api/solution/**", "/api/content/**").permitAll()
-                // TODO(AUTH-002): 로그인을 붙이면 training, solution도 로그인 사용자만 쓰도록 좁혀요 (user_id NOT NULL)
+                .requestMatchers("/api/auth/**", "/api/users/me", "/api/training/**", "/api/trainings/**",
+                        "/api/solution/**", "/api/content/**").permitAll()
                 .anyRequest().authenticated());
         return http.build();
     }
