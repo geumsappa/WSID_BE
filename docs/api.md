@@ -35,7 +35,7 @@ URL의 `sessions`는 리소스 이름이에요. 로그인 세션 기능을 켜�
 | AI-04 | POST | `/internal/ai/simulation/reply` | 내부 | 새 replySimulation fake/HTTP 클라이언트·응답 타입 검사·계약 테스트 구현. 기존 훈련 서비스는 옛 /internal/training/turn 유지, FastAPI·TRN-08 전환 미완료. [구현 보고서](ai-04-simulation.md) |
 | AI-05 | POST | `/internal/ai/training/evaluate` | 내부 | evaluateTraining fake/HTTP 클라이언트·엄격한 응답 타입 검사·요청 ID·전용 타임아웃 구현. FastAPI·리포트 생성/저장/조회는 미연결. [구현 보고서](ai-05-evaluation.md) |
 | AI-06 | POST | `/internal/ai/solutions/extract` | 내부 | extractSolutionFacts fake/HTTP 클라이언트·엄격한 타입/미확정 집합 검사·요청 ID 구현. 실제 FastAPI·상담 서비스·사실 저장·카드 선택은 미연결. [구현 보고서](ai-06-solution-extract.md) |
-| AI-07 | POST | `/internal/ai/solutions/explain` | 내부 | 미구현; 문서는 I6 근거 검색으로 설명 |
+| AI-07 | POST | `/internal/ai/solutions/explain` | 내부 | explainSolution fake/HTTP 클라이언트·엄격한 타입·요청 근거 코드 대조·출력 패턴 검사 구현. 실제 FastAPI/RAG·승인 카탈로그·상담·저장은 미연결. [구현 보고서](ai-07-solution-explain.md) |
 
 ## 회원·인증
 

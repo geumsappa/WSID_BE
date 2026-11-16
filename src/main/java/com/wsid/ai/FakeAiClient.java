@@ -8,6 +8,8 @@ import com.wsid.ai.dto.SimulationReplyRequest;
 import com.wsid.ai.dto.SimulationReplyResult;
 import com.wsid.ai.dto.SolutionExtractRequest;
 import com.wsid.ai.dto.SolutionExtractResult;
+import com.wsid.ai.dto.SolutionExplainRequest;
+import com.wsid.ai.dto.SolutionExplainResult;
 import com.wsid.ai.dto.TrainingTurnRequest;
 import com.wsid.ai.dto.TrainingTurnSuggestion;
 import com.wsid.ai.dto.TrainingEvaluateRequest;
@@ -21,6 +23,22 @@ import java.util.Map;
  * 항상 같은 입력에 같은 답을 돌려줘요.
  */
 public class FakeAiClient implements AiClient {
+
+    /** 검색·설명 품질을 대신하지 않는 고정 개발용 결과예요. 실패 표식은 근거가 있을 때만 사용해요. */
+    @Override
+    public SolutionExplainResult explainSolution(SolutionExplainRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("대응 설명 요청이 필요해요.");
+        }
+        if (request.verifiedReferences().stream().anyMatch(reference -> reference.title().contains("[AI_FAIL]"))) {
+            throw new AiUnavailableException("가짜 AI-07 실패");
+        }
+        var result = request.verifiedReferences().isEmpty()
+                ? new SolutionExplainResult("확인된 근거가 없어 추가 설명을 제공하지 않습니다.", List.of())
+                : new SolutionExplainResult("검토된 대응 카드의 순서와 준비 항목을 함께 확인해 주세요.",
+                        List.of(request.verifiedReferences().getFirst().code()));
+        return SolutionExplanationValidator.validate(request, result);
+    }
 
     /** 합성 문장 몇 개만 인식하는 개발용 결과. 일반 문장의 키워드로 사실을 추측하지 않아요. */
     @Override

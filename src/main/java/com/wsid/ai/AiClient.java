@@ -8,6 +8,8 @@ import com.wsid.ai.dto.SimulationReplyRequest;
 import com.wsid.ai.dto.SimulationReplyResult;
 import com.wsid.ai.dto.SolutionExtractRequest;
 import com.wsid.ai.dto.SolutionExtractResult;
+import com.wsid.ai.dto.SolutionExplainRequest;
+import com.wsid.ai.dto.SolutionExplainResult;
 import com.wsid.ai.dto.TrainingTurnRequest;
 import com.wsid.ai.dto.TrainingTurnSuggestion;
 import com.wsid.ai.dto.TrainingEvaluateRequest;
@@ -69,4 +71,12 @@ public interface AiClient {
      * @throws AiUnavailableException 호출 실패 또는 계약에 어긋난 응답
      */
     SolutionExtractResult extractSolutionFacts(SolutionExtractRequest request);
+
+    /**
+     * AI-07: 확인된 사실·승인 근거로 보조 설명을 받아요. 실제 승인 확인·긴급 카드·저장은 호출자 책임이에요.
+     * 트랜잭션 밖에서 호출하고 사용자 원문·근거 문단을 로그에 남기지 않아요.
+     *
+     * @throws AiUnavailableException 호출 실패 또는 응답 계약·근거 코드·출력 제한 위반
+     */
+    SolutionExplainResult explainSolution(SolutionExplainRequest request);
 }
