@@ -42,16 +42,31 @@ public class ReportService {
     /** 기존 훈련이 완료되는 트랜잭션에서 정해진 문구로 기본 평가를 남겨요. */
     @Transactional
     public void recordCompletion(TrainingSession training, UserAction lastAction, Instant now) {
-        boolean verified = lastAction == UserAction.END_CONTACT_AND_VERIFY;
+        recordCompletion(training, lastAction == UserAction.END_CONTACT_AND_VERIFY,
+                new ReportEvaluation.MockPageEvaluation(false, false, false), now);
+    }
+
+    @Transactional
+    public long recordCompletion(TrainingSession training, boolean verified,
+            ReportEvaluation.MockPageEvaluation page, Instant now) {
         var evaluation = new ReportEvaluation(
                 verified ? "상대와의 연락을 끊고 사실을 확인하는 선택을 했어요." : "훈련을 마쳤어요. 다음 훈련에서는 공식 채널로 사실을 확인해 보세요.",
                 verified ? List.of("연락 중단 및 확인 선택") : List.of(),
                 verified ? List.of() : List.of("요청을 받으면 응답하기 전에 사실 확인하기"),
-                List.of(), new ReportEvaluation.MockPageEvaluation(false, false, false),
+                List.of(), page,
                 List.of("상대가 보내준 링크 대신 직접 찾은 공식 채널에서 확인하세요."));
+        return recordEvaluation(training, evaluation, now);
+    }
+
+    @Transactional
+    public long recordEvaluation(TrainingSession training, ReportEvaluation evaluation, Instant now) {
         String title = "SECONDHAND_TRADE".equals(fraudType(training.getFraudTypeCode()))
                 ? "중고거래 금융사기 예방 훈련" : "금융사기 예방 훈련";
-        reports.save(TrainingReport.create(training.getId(), title, json.writeValueAsString(evaluation), now));
+        return reports.save(TrainingReport.create(training.getId(), title, json.writeValueAsString(evaluation), now)).getId();
+    }
+
+    public long existingReportId(long trainingId) {
+        return reports.findByTrainingId(trainingId).orElseThrow(ReportService::notFound).getId();
     }
 
     public TrainingResult trainingReport(long id) {

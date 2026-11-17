@@ -241,6 +241,154 @@ class RegistrationIntegrationTest {
     }
 
     @Test
+    void trainingContractCreatesRestoresAndOnlyShowsActiveOwnedSessions() throws Exception {
+        String path = "/api/trainings";
+        String owner = activeCookie(address());
+        String other = activeCookie(address());
+        assertError(getWithCookie(path + "/active", null), 401, "LOGIN_REQUIRED");
+        assertTrue(data(getWithCookie(path + "/active", owner), 200).isNull());
+        var unprotected = request(path, owner).header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("{}"));
+        assertEquals(403, client.send(unprotected.build(), HttpResponse.BodyHandlers.ofString()).statusCode());
+
+        var token = data(getWithCookie("/api/auth/csrf", owner), 200);
+        var created = data(reportPost(path, owner, token, Map.of()), 201);
+        long id = created.path("trainingId").asLong();
+        try {
+            assertEquals("DISCOVERY", created.path("phase").asText());
+            assertEquals("ACTIVE", created.path("status").asText());
+            assertEquals(0, created.path("stateVersion").asInt());
+            assertEquals("AI", created.path("firstMessage").path("sender").asText());
+            String firstMessage = created.path("firstMessage").path("content").asText();
+            assertFalse(firstMessage.isBlank());
+
+            var active = data(getWithCookie(path + "/active", owner), 200);
+            assertEquals(id, active.path("trainingId").asLong());
+            assertTrue(active.path("lastActivityAt").isString());
+            assertTrue(data(getWithCookie(path + "/active", other), 200).isNull());
+            assertError(getWithCookie(path + "/" + id, other), 404, "TRAINING_NOT_FOUND");
+
+            var detail = data(getWithCookie(path + "/" + id, owner), 200);
+            var opening = detail.path("messages").get(0);
+            assertTrue(opening.path("id").asLong() > 0);
+            assertEquals("TEXT", opening.path("inputKind").asText());
+            assertEquals(firstMessage, opening.path("content").asText());
+            assertEquals(0, detail.path("turnCount").asInt());
+            assertTrue(detail.path("mockPage").isNull());
+            assertTrue(detail.path("availableOptions").isArray());
+            assertTrue(detail.path("availableOptions").isEmpty());
+
+            jdbc.update("update training_messages set options_json = cast(? as jsonb) where id = ?",
+                    "[{\"code\":\"CHECK\",\"label\":\"직접 확인\"}]", opening.path("id").asLong());
+            var restored = data(getWithCookie(path + "/" + id, owner), 200);
+            assertEquals("CHECK", restored.path("availableOptions").get(0).path("code").asText());
+
+            jdbc.update("update training_sessions set expires_at = CURRENT_TIMESTAMP where id = ?", id);
+            assertTrue(data(getWithCookie(path + "/active", owner), 200).isNull());
+        } finally {
+            jdbc.update("delete from training_messages where training_id = ?", id);
+            jdbc.update("delete from training_sessions where id = ?", id);
+        }
+    }
+
+    @Test
+    void trainingWorkflowMovesThroughDiscoverySimulationActionsAndReport() throws Exception {
+        String owner = activeCookie(address());
+        String other = activeCookie(address());
+        var token = data(getWithCookie("/api/auth/csrf", owner), 200);
+        var created = data(reportPost("/api/trainings", owner, token, Map.of()), 201);
+        long id = created.path("trainingId").asLong();
+        String path = "/api/trainings/" + id;
+        try {
+            assertError(reportPost(path + "/scenario", owner, token, trainingBody(0, Map.of())),
+                    409, "INVALID_TRAINING_PHASE");
+            String discovery = path + "/discovery/messages";
+            assertError(reportPost(discovery, owner, token, trainingBody(0, Map.of("content", "test@example.invalid"))),
+                    400, "SENSITIVE_DATA_DETECTED");
+            verifyMockOcr(path, owner, token);
+            var first = trainingBody(0, Map.of("content", "중고거래 중 의심스러운 연락을 받았어요."));
+            var response = data(reportPost(discovery, owner, token, first), 200);
+            assertFalse(response.path("canGenerateScenario").asBoolean());
+            assertError(reportPost(discovery, owner, token, first), 409, "DUPLICATE_REQUEST");
+            assertError(reportPost(discovery, owner, token, trainingBody(0, Map.of("content", "이전 화면 요청"))),
+                    409, "STATE_VERSION_CONFLICT");
+            int version = response.path("stateVersion").asInt();
+            for (String answer : List.of("거래 내용을 확인해 달라고 했어요.", "직접 확인하고 답하겠다고 했어요.")) {
+                response = data(reportPost(discovery, owner, token, trainingBody(version, Map.of("content", answer))), 200);
+                version = response.path("stateVersion").asInt();
+            }
+            assertTrue(response.path("canGenerateScenario").asBoolean());
+            var scenario = data(reportPost(path + "/scenario", owner, token, trainingBody(version, Map.of())), 200);
+            assertEquals("SCENARIO_READY", scenario.path("phase").asText());
+            var restored = data(getWithCookie(path, owner), 200);
+            assertEquals(scenario.path("scenario"), restored.path("scenario"));
+            var started = data(reportPost(path + "/start", owner, token,
+                    trainingBody(scenario.path("stateVersion").asInt(), Map.of())), 200);
+            assertEquals("SIMULATION", started.path("phase").asText());
+            version = started.path("stateVersion").asInt();
+            assertEquals(403, client.send(request(path + "/messages", owner).header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString("{}")).build(),
+                    HttpResponse.BodyHandlers.ofString()).statusCode());
+            assertError(reportPost(path + "/messages", owner, token,
+                    trainingBody(version, Map.of("inputKind", "CHOICE", "selectedCode", "UNKNOWN"))), 400, "INVALID_REQUEST");
+            for (int i = 1; i <= 2; i++) {
+                var turn = data(reportPost(path + "/messages", owner, token, trainingBody(version,
+                        Map.of("inputKind", "TEXT", "content", "어떤 내용을 확인하면 되나요?"))), 200);
+                assertEquals(i, turn.path("turnCount").asInt());
+                assertEquals(i == 1, turn.path("mockPage").isNull());
+                version = turn.path("stateVersion").asInt();
+            }
+            var page = data(getWithCookie(path + "/mock-page", owner), 200);
+            assertTrue(page.path("isSimulation").asBoolean());
+            assertError(getWithCookie(path + "/mock-page", other), 404, "TRAINING_NOT_FOUND");
+            var action = data(reportPost(path + "/actions", owner, token, trainingBody(version,
+                    Map.of("actionCode", "MOCK_PAGE_OPEN", "actionMeta",
+                            Map.of("templateCode", "BANK_NOTICE", "screenCode", "LOGIN_CHECK")))), 200);
+            assertTrue(action.path("recorded").asBoolean());
+            var choice = data(reportPost(path + "/messages", owner, token, trainingBody(action.path("stateVersion").asInt(),
+                    Map.of("inputKind", "CHOICE", "selectedCode", "OFFICIAL_CHANNEL_CHECK"))), 200);
+            assertTrue(choice.path("shouldFinish").asBoolean());
+            assertTrue(data(getWithCookie(path, owner), 200).path("shouldFinish").asBoolean());
+            var finish = trainingBody(choice.path("stateVersion").asInt(), Map.of("reason", "USER_FINISH"));
+            var finished = data(reportPost(path + "/finish", owner, token, finish), 200);
+            assertEquals("RESULT", finished.path("phase").asText());
+            assertEquals(finished.path("reportId"),
+                    data(reportPost(path + "/finish", owner, token, finish), 200).path("reportId"));
+            var report = data(getWithCookie(path + "/report", owner), 200);
+            assertEquals(finished.path("reportId"), report.path("reportId"));
+            assertTrue(report.path("evaluation").path("mockPageEvaluation").path("openedPage").asBoolean());
+            assertTrue(data(getWithCookie("/api/trainings/active", owner), 200).isNull());
+        } finally {
+            jdbc.update("delete from training_reports where training_id = ?", id);
+            jdbc.update("delete from training_messages where training_id = ?", id);
+            jdbc.update("delete from training_sessions where id = ?", id);
+        }
+    }
+
+    private Map<String, Object> trainingBody(int version, Map<String, Object> fields) {
+        var body = new java.util.HashMap<>(fields);
+        body.put("stateVersion", version);
+        body.put("requestId", UUID.randomUUID());
+        return body;
+    }
+
+    private void verifyMockOcr(String path, String owner, JsonNode token) throws Exception {
+        String boundary = "training-test-boundary";
+        byte[] image = java.util.Base64.getDecoder().decode(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jEJkAAAAASUVORK5CYII=");
+        String start = "--" + boundary + "\r\nContent-Disposition: form-data; name=\"requestId\"\r\n\r\n"
+                + UUID.randomUUID() + "\r\n--" + boundary
+                + "\r\nContent-Disposition: form-data; name=\"images\"; filename=\"test.png\"\r\nContent-Type: image/png\r\n\r\n";
+        var body = HttpRequest.BodyPublishers.concat(HttpRequest.BodyPublishers.ofString(start),
+                HttpRequest.BodyPublishers.ofByteArray(image), HttpRequest.BodyPublishers.ofString("\r\n--" + boundary + "--\r\n"));
+        var req = request(path + "/discovery/images", owner).header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                .header(token.path("headerName").asText(), token.path("token").asText()).POST(body).build();
+        var response = data(client.send(req, HttpResponse.BodyHandlers.ofString()), 200);
+        assertFalse(response.path("usable").asBoolean());
+        assertEquals("", response.path("recognizedText").asText());
+    }
+
+    @Test
     void guidesExposeOnlyReviewedEntriesWithoutLogin() throws Exception {
         var types = data(getWithCookie("/api/guides/fraud-types", null), 200);
         assertEquals(1, types.size());

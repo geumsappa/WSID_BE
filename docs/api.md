@@ -82,7 +82,7 @@ AUTH-07은 `data`에 `id`, `email`, `gender`, `status`, `createdAt`을 반환해
 | RPT-04 | GET | `/api/reports/{id}` | 필요 | 본인이 저장한 리포트 상세 조회 |
 | RPT-05 | GET | `/api/reports/{id}/pdf` | 필요 | 본인 리포트의 PDF 바이너리 다운로드 |
 
-현재 훈련이 완료되면 기본 규칙으로 평가를 만들어요. AI-05 연동 및 명세의 훈련 종료 API(TRN-11)는 후속 작업이에요. RPT-03의 노션 오류 예시 `TOKEN_EXPIRED`는 서버 세션 정책에 맞춰 `401 LOGIN_REQUIRED`로 보완할 필요가 있어요. 다음 페이지는 `nextCursor` 값을 그대로 보내요.
+TRN-11이 완료되면 리포트를 만들어요. 기본 모드는 규칙 기반 평가를 생성하고, HTTP 모드는 AI-05를 호출해요. RPT-03의 노션 오류 예시 `TOKEN_EXPIRED`는 서버 세션 정책에 맞춰 `401 LOGIN_REQUIRED`로 보완할 필요가 있어요. 다음 페이지는 `nextCursor` 값을 그대로 보내요.
 
 ## 피해 대응
 
@@ -98,14 +98,20 @@ AUTH-07은 `data`에 `id`, `email`, `gender`, `status`, `createdAt`을 반환해
 
 | API ID | 메서드 | 경로 | 인증 | 현재 구현 |
 |---|---|---|---|---|
-| TRN-01 | POST | `/api/trainings` | 필요 | 기존 POST /api/training/sessions에서 동작; 경로 불일치 |
-| TRN-02 | GET | `/api/trainings/active` | 필요 | 기존 GET /api/training/sessions/active에서 동작; 경로 불일치 |
-| TRN-03 | GET | `/api/trainings/{id}` | 필요 | 기존 GET /api/training/sessions/{id}에서 동작; 선택지 복원 없음 |
-| TRN-04 | POST | `/api/trainings/{id}/discovery/messages` | 필요 | 기존 /turns가 처리; 첫 답변 뒤 즉시 훈련으로 전이, 후속 질문·사실 추출 없음 |
-| TRN-05 | POST | `/api/trainings/{id}/discovery/images` | 필요 | 미구현; 파일 제한 검증·임시 보관·삭제 구현 필요 |
-| TRN-06 | POST | `/api/trainings/{id}/scenario` | 필요 | 별도 API 없음; 기본 유형 고정 |
-| TRN-07 | POST | `/api/trainings/{id}/start` | 필요 | 별도 API 없음; finishDiscovery가 beginSimulation 직접 호출 |
-| TRN-08 | POST | `/api/trainings/{id}/messages` | 필요 | 기존 /api/training/sessions/{id}/turns에서 동작; 경로·AI 맥락 불일치 |
-| TRN-09 | GET | `/api/trainings/{id}/mock-page` | 필요 | 템플릿 코드 컬럼만; 응답 DTO·조회 없음 |
-| TRN-10 | POST | `/api/trainings/{id}/actions` | 필요 | InputKind.ACTION·JSON 컬럼만; API·동작 없음 |
-| TRN-11 | POST | `/api/trainings/{id}/finish` | 필요 | 자동 종료만 있음; 직접 종료·리포트 생성·API 없음 |
+| TRN-01 | POST | `/api/trainings` | 필요 | 구현. CSRF 헤더와 JSON `{}`를 보내면 새 훈련과 첫 질문을 반환 |
+| TRN-02 | GET | `/api/trainings/active` | 필요 | 구현. 만료되지 않은 최근 훈련을 반환하며 없으면 `200`과 `data: null` |
+| TRN-03 | GET | `/api/trainings/{id}` | 필요 | undefined |
+| TRN-04 | POST | `/api/trainings/{id}/discovery/messages` | 필요 | 구현. 상황 파악 답변과 다음 질문 저장, 민감정보 및 중복 요청 차단 |
+| TRN-05 | POST | `/api/trainings/{id}/discovery/images` | 필요 | 구현. PNG/JPEG 최대 3장, 장당 5MB. 실제 OCR은 AI-02 필요 |
+| TRN-06 | POST | `/api/trainings/{id}/scenario` | 필요 | 구현. 상황 파악 완료 후 시나리오 생성과 SCENARIO_READY 전환 |
+| TRN-07 | POST | `/api/trainings/{id}/start` | 필요 | 구현. 준비된 시나리오로 가상 훈련 시작 |
+| TRN-08 | POST | `/api/trainings/{id}/messages` | 필요 | 구현. 텍스트·선택지 요청 처리, 다음 대사·판정·종료 제안 반환 |
+| TRN-09 | GET | `/api/trainings/{id}/mock-page` | 필요 | 구현. 가상 금융 모의 페이지 조회 |
+| TRN-10 | POST | `/api/trainings/{id}/actions` | 필요 | 구현. 가상 화면 행동과 허용된 메타데이터만 저장 |
+| TRN-11 | POST | `/api/trainings/{id}/finish` | 필요 | 구현. 훈련 종료와 리포트 저장을 함께 처리. 반복 종료 시 같은 리포트 반환 |
+
+훈련 변경 요청에는 로그인 세션의 CSRF 헤더가 필요해요. `stateVersion` 충돌은 409 `STATE_VERSION_CONFLICT`, 이미 저장된 메시지·행동 요청 ID는 409 `DUPLICATE_REQUEST`를 반환해요.
+
+기본 `AI_MODE=fake`에서는 상황 답변 3회 뒤 검토된 중고거래 예시로 진행하고, OCR은 직접 입력을 안내해요. `AI_MODE=http`에서는 노션의 AI-01~05 경로와 `success/data` 형식으로 FastAPI를 호출해요. AI 평가가 실패하면 훈련을 완료 처리하지 않아 다시 종료 요청을 보낼 수 있어요.
+
+팀 확인 항목은 내부 AI의 세부 필드(사기 유형 코드, 시나리오 첫 대사), 금융 외 모의 페이지 코드, 프론트 상태 복구에 쓰는 TRN-03 추가 필드(`scenario`, `messages[].phase`, `canGenerateScenario`, `shouldFinish`)예요.

@@ -40,19 +40,19 @@
 
 | API ID | 메서드 | 경로 | 인증 | 현재 구현 |
 |---|---|---|---|---|
-| TRN-01 | POST | `/api/trainings` | 필요 | 기존 POST /api/training/sessions에서 동작; 경로 불일치 |
-| TRN-02 | GET | `/api/trainings/active` | 필요 | 기존 GET /api/training/sessions/active에서 동작; 경로 불일치 |
-| TRN-03 | GET | `/api/trainings/{id}` | 필요 | 기존 GET /api/training/sessions/{id}에서 동작; 선택지 복원 없음 |
-| TRN-04 | POST | `/api/trainings/{id}/discovery/messages` | 필요 | 기존 /turns가 처리; 첫 답변 뒤 즉시 훈련으로 전이, 후속 질문·사실 추출 없음 |
-| TRN-05 | POST | `/api/trainings/{id}/discovery/images` | 필요 | 미구현; 파일 제한 검증·임시 보관·삭제 구현 필요 |
-| TRN-06 | POST | `/api/trainings/{id}/scenario` | 필요 | 별도 API 없음; 기본 유형 고정 |
-| TRN-07 | POST | `/api/trainings/{id}/start` | 필요 | 별도 API 없음; finishDiscovery가 beginSimulation 직접 호출 |
-| TRN-08 | POST | `/api/trainings/{id}/messages` | 필요 | 기존 /api/training/sessions/{id}/turns에서 동작; 경로·AI 맥락 불일치 |
-| TRN-09 | GET | `/api/trainings/{id}/mock-page` | 필요 | 템플릿 코드 컬럼만; 응답 DTO·조회 없음 |
-| TRN-10 | POST | `/api/trainings/{id}/actions` | 필요 | InputKind.ACTION·JSON 컬럼만; API·동작 없음 |
-| TRN-11 | POST | `/api/trainings/{id}/finish` | 필요 | 자동 종료만 있음; 직접 종료·리포트 생성·API 없음 |
+| TRN-01 | POST | `/api/trainings` | 필요 | 구현. 새 훈련과 첫 질문 반환 |
+| TRN-02 | GET | `/api/trainings/active` | 필요 | 구현. 만료되지 않은 최근 훈련, 없으면 `data: null` |
+| TRN-03 | GET | `/api/trainings/{id}` | 필요 | 구현. 본인 훈련 상태·대화·저장된 선택지 복원 |
+| TRN-04 | POST | `/api/trainings/{id}/discovery/messages` | 필요 | 구현. 상황 파악 답변과 다음 질문 저장, 민감정보 및 중복 요청 차단 |
+| TRN-05 | POST | `/api/trainings/{id}/discovery/images` | 필요 | 구현. PNG/JPEG 최대 3장, 장당 5MB. 실제 OCR은 AI-02 필요 |
+| TRN-06 | POST | `/api/trainings/{id}/scenario` | 필요 | 구현. 상황 파악 완료 후 시나리오 생성과 SCENARIO_READY 전환 |
+| TRN-07 | POST | `/api/trainings/{id}/start` | 필요 | 구현. 준비된 시나리오로 가상 훈련 시작 |
+| TRN-08 | POST | `/api/trainings/{id}/messages` | 필요 | 구현. 텍스트·선택지 요청 처리, 다음 대사·판정·종료 제안 반환 |
+| TRN-09 | GET | `/api/trainings/{id}/mock-page` | 필요 | 구현. 가상 금융 모의 페이지 조회 |
+| TRN-10 | POST | `/api/trainings/{id}/actions` | 필요 | 구현. 가상 화면 행동과 허용된 메타데이터만 저장 |
+| TRN-11 | POST | `/api/trainings/{id}/finish` | 필요 | 구현. 훈련 종료와 리포트 저장을 함께 처리. 반복 종료 시 같은 리포트 반환 |
 
-현재 실행 경로는 `POST /api/training/sessions`, `GET /api/training/sessions/active`, `GET /api/training/sessions/{id}`, `POST /api/training/sessions/{id}/turns`예요. 목표 API로의 경로·역할 전환은 아직 구현하지 않았어요.
+TRN-01~11은 `/api/trainings`로 호출해요. 변경 요청은 로그인 세션의 CSRF 헤더가 필요해요. 이전 `/api/training/sessions` 경로도 사용할 수 있어요.
 
 ## 목표 상황 파악 흐름
 

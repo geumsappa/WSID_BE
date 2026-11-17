@@ -49,6 +49,8 @@ public class SecurityConfig {
             UrlBasedCorsConfigurationSource corsConfigurationSource) throws Exception {
         var logout = PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/auth/logout");
         var training = PathPatternRequestMatcher.withDefaults().matcher("/api/training/**");
+        var createTraining = PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/trainings");
+        var trainingApi = PathPatternRequestMatcher.withDefaults().matcher("/api/trainings/{id}/**");
         var saveReport = PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/reports/{id}/save");
         http
             .cors(cors -> cors.configurationSource(corsConfigurationSource))
@@ -58,11 +60,15 @@ public class SecurityConfig {
                 var authentication = SecurityContextHolder.getContext().getAuthentication();
                 return authentication != null && authentication.isAuthenticated()
                         && authentication.getPrincipal() instanceof Long
-                        && (logout.matches(request) || saveReport.matches(request)
-                            || (training.matches(request) && CsrfFilter.DEFAULT_CSRF_MATCHER.matches(request)));
+                        && (logout.matches(request) || saveReport.matches(request) || createTraining.matches(request)
+                            || ((training.matches(request) || trainingApi.matches(request))
+                                && CsrfFilter.DEFAULT_CSRF_MATCHER.matches(request)));
             }))
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers(HttpMethod.GET, "/api/guides/**", "/api/trainings/{id}/report").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/guides/**", "/api/trainings/active",
+                        "/api/trainings/{id}", "/api/trainings/{id}/report").permitAll()
+                .requestMatchers(createTraining).permitAll()
+                .requestMatchers(trainingApi).permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/reports", "/api/reports/{id}", "/api/reports/{id}/pdf").permitAll()
                 .requestMatchers(saveReport).permitAll()
                 .requestMatchers("/api/auth/**", "/api/users/me", "/api/training/**", "/api/solution/**",

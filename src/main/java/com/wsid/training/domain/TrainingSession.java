@@ -115,6 +115,46 @@ public class TrainingSession {
         touch(rules, now);
     }
 
+    public void recordDiscovery(String facts, TrainingRules rules, Instant now) {
+        contextFacts = facts;
+        discoveryTurnCount++;
+        touch(rules, now);
+    }
+
+    public void prepareScenario(String code, String scenario, String template, TrainingRules rules, Instant now) {
+        fraudTypeCode = code;
+        scenarioJson = scenario;
+        mockPageTemplateCode = template;
+        phase = TrainingPhase.SCENARIO_READY;
+        touch(rules, now);
+    }
+
+    public void startPreparedScenario(TrainingRules rules, Instant now) {
+        phase = TrainingPhase.SIMULATION;
+        touch(rules, now);
+    }
+
+    public void recordSimulationTurn(boolean keyScene, boolean shouldFinish, TrainingRules rules, Instant now) {
+        simulationTurnCount++;
+        flowStateJson = new FlowState(keyScene || isKeySceneShown(), shouldFinish).toJson();
+        touch(rules, now);
+    }
+
+    public boolean isFinishSuggested() { return flowState().finishSuggested(); }
+
+    public void recordActivity(TrainingRules rules, Instant now) {
+        touch(rules, now);
+    }
+
+    public void complete(Instant now) {
+        lastActivityAt = now;
+        finish(now);
+    }
+
+    public String getContextFacts() { return contextFacts; }
+    public String getScenarioJson() { return scenarioJson; }
+    public String getMockPageTemplateCode() { return mockPageTemplateCode; }
+
     /**
      * 가상 훈련 한 턴을 적용해요. 규칙의 우선순위는 위에서 아래 순서예요.
      *
