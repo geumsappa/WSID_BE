@@ -7,16 +7,16 @@
 
 | 명세서 항목 | ID | 우선순위 | 상태 | 관련 코드 |
 |---|---|---|---|---|
-| 피해 설명 또는 선택으로 시작 | SOL-003 | 상 | 엔티티만 | `SolutionSession.start` |
-| 설명에서 확인 항목 추출 | SOL-003 · I5 | 상 | 미구현 | `facts_json` 컬럼 |
-| 필요한 항목 추가 질문 | SOL-003 | 상 | 미구현 | `next_question_json` 컬럼 |
+| 피해 설명 또는 선택으로 시작 | SOL-003 | 상 | SOL-01 구현 | `StartSolutionService`, `SolutionController` |
+| 설명에서 확인 항목 추출 | SOL-003 · I5 | 상 | 상담 시작에 연결 | `StartSolutionService`, `SolutionFacts` |
+| 필요한 항목 추가 질문 | SOL-003 | 상 | 첫 질문만 구현 | `SolutionQuestion` |
 | 파악된 내용 수정 | SOL-003 | 상 | 미구현 | - |
-| 분석 실패 시 직접 선택 | SOL-003 | 상 | 미구현 | `InputKind.OPTION`, `selected_code` |
-| 긴급 안내 우선 표시 | SOL-007 | 상 | 미구현 | - |
+| 분석 실패 시 직접 선택 | SOL-003 | 상 | 시작 시 대체 구현, 선택 응답(SOL-03) 미구현 | `StartSolutionService`, `InputKind.OPTION` |
+| 긴급 안내 우선 표시 | SOL-007 | 상 | 규칙·정렬 구현, 운영 카드 없음 | `ResponseRules` |
 | 필요한 대응 카드 제공 | SOL-004 | 상 | 미구현 | `card_codes_json` 컬럼 |
 | 확인한 사실과 카드 다시 보기 | SOL-004 | 중 | 미구현 | - |
-| 공식 근거 문단 검색 | SOL-004 · I6 | 중 | 미구현 | `reference_codes_json` 컬럼 |
-| 피해 설명의 민감정보 처리 | 비기능 · I5 | 상 | 미구현 | `safe_content` 컬럼 |
+| 공식 근거 문단 검색·설명 | SOL-004 · I6 | 중 | AI-07 설명 클라이언트만 구현; 검색·상담 미연결 | `AiClient.explainSolution`, `reference_codes_json` 컬럼 |
+| 피해 설명의 민감정보 처리 | 비기능 · I5 | 상 | 초안 거부 규칙 구현 | `SensitiveDescriptionGuard` |
 
 ## 이용 정책과 목표 API
 
@@ -24,13 +24,13 @@
 
 | API ID | 메서드 | 경로 | 인증 | 현재 구현 |
 |---|---|---|---|---|
-| SOL-01 | POST | `/api/solutions/sessions` | 불필요 (비회원 상담 소유권 확인 필요) | SolutionSession.start만; 시작 설명 즉시 추출 없음 |
-| SOL-02 | GET | `/api/solutions/sessions/{id}` | 불필요 (비회원 상담 소유권 확인 필요) | 엔티티·소유자 조건 repository만; 서비스·API 없음 |
+| SOL-01 | POST | `/api/solutions/sessions` | 불필요 (비회원 상담 소유권 확인 필요) | 구현([보고서](../../../../../../docs/sol-01-session-start.md)) |
+| SOL-02 | GET | `/api/solutions/sessions/{id}` | 불필요 (비회원 상담 소유권 확인 필요) | 구현([보고서](../../../../../../docs/sol-02-session-get.md)) |
 | SOL-03 | POST | `/api/solutions/sessions/{id}/messages` | 불필요 (비회원 상담 소유권 확인 필요) | 메시지 엔티티만; 서비스·API 없음 |
 | SOL-04 | PATCH | `/api/solutions/sessions/{id}/facts` | 불필요 (비회원 상담 소유권 확인 필요) | factsJson 컬럼만; 병합·재판정·API 없음 |
 | SOL-05 | POST | `/api/solutions/sessions/{id}/complete` | 불필요 (비회원 상담 소유권 확인 필요) | completedAt 컬럼만; 종료 메서드·API 없음 |
 
-현재는 `solution_sessions.user_id NOT NULL` 및 users 외래키, `CurrentUser` 기반 계정 식별 구조만 있어 비회원 상담을 처리할 수 없어요. 비회원 소유자 식별 방법·저장 구조·복원 범위를 설계하고 새 마이그레이션으로 지원해야 해요. 구체적인 쿠키·식별자 계약은 아직 확정하지 않았어요. 상담 ID만 받아 타인 상담을 조회하게 만들지 않아요.
+소유자는 `SolutionOwnerResolver`가 정해요. 회원은 로그인 principal, 비회원은 HTTP 세션에 발급한 익명 UUID(`anonymous_owner_id`, V3)예요. 비회원은 `GET /api/solutions/csrf`로 세션·토큰을 받은 뒤 같은 쿠키와 `X-CSRF-TOKEN`으로 요청해요. 보안 규칙은 AUTH의 `SecurityConfig`가 아니라 `security/SolutionSecurityConfig`(`/api/solutions/**` 전용 체인)에 있어요. 조회는 `SolutionOwnerResolver.findExisting`(새 세션·UUID를 만들지 않음)과 `SolutionSessionRepository.findOwned`로만 하고, 상담 ID만 받아 타인 상담을 조회하게 만들지 않아요.
 
 ## 테이블
 
@@ -44,12 +44,16 @@ training 패키지와 같은 모양으로 만들어요.
 1. **domain 규칙부터**: 사실을 값 객체로 만들어요. 항목은 송금, 정보 제공, 앱 설치, 연락 지속이고 값은 예·아니오·모름이에요.
    `SolutionSession`에 `mergeFacts(...)`(바꾼 항목만 갱신)를 추가하고, `ResponseRules`(사실 → 카드 코드 목록, 긴급 여부, 다음 질문)를 순수 Java로 만들어요.
 2. **단위 테스트**: "보냈다", "보내려다 멈췄다", "송금을 언급하지 않았다"가 구분되는지, 긴급 카드가 맨 앞에 오는지, 모름일 때 더 안전한 쪽 안내가 나오는지 검증해요.
-3. **AI 연결**: `AiClient`에 사실 추출(I5) 메서드를 추가해요. 실패하면 화면에서 직접 선택하게 해요. 선택으로 확인한 사실도 같은 규칙에 넣어요.
+3. **AI 연결**: 구현된 `AiClient.extractSolutionFacts`에 새 설명과 현재 사실 Map을 전달해요. 개인정보 최소 처리 후 호출하고 실패하면 기존 사실을 유지하며 직접 선택하게 해요. 선택으로 확인한 사실도 같은 도메인 규칙에 넣어요. AI의 UNKNOWN이나 충돌하는 제안으로 사용자 확정값을 조용히 덮어쓰지 않아요.
 4. **service**: 상담 소유자 확인 → 읽기 → AI 호출(트랜잭션 밖) → 사실 합치기 → 규칙 적용 → 저장. 시작 요청에 설명이 있으면 바로 AI-06으로 사실을 추출해요. `content`에서 카드 내용을 가져와 응답을 만들어요.
 5. **controller**: SOL-01~05의 시작·복원·메시지·사실 수정·완료를 구현해요. 비회원 소유권을 유지하며, 완료 상태와 완료 후 허용 요청·응답은 계약으로 정의해요.
-6. **근거 검색(I6)**: 긴급 카드가 없을 때만 호출해요. 긴급 카드는 검색을 기다리지 않아요.
+6. **근거 검색·설명(I6)**: 승인 근거 검색·선별은 아직 구현하지 않았어요. 긴급 카드가 없고 승인된 설명용 문단이 있을 때만 구현된 `AiClient.explainSolution`에 사실 Map과 문단을 전달해요. 긴급 카드는 검색을 기다리지 않아요. 근거가 없거나 사실이 전부 UNKNOWN이면 질문·검토된 안내를 우선하고 설명 생성을 생략해요.
 
 ## 규칙
+
+AI-06 요청·응답 DTO, 현재 파일별 책임, 상담 서비스 연결 기준은 [AI-06 구현 보고서](../../../../../../docs/ai-06-solution-extract.md)의 3~8장을 참고해요. 별도 FastAPI 저장소에서 구현할 스키마·라우터·추출 서비스·검증 테스트는 같은 문서 9장에 정리했어요. DTO와 HTTP 클라이언트는 DB에 접근하지 않으며, 현재 이 클라이언트를 호출하는 상담 서비스는 없어요.
+
+AI-07은 [구현 보고서](../../../../../../docs/ai-07-solution-explain.md)의 8~10장을 참고해요. 연락처·URL 없는 승인 설명용 문단을 선택하고, 호출 전후 상담/근거 버전·소유권·완료 상태를 확인해야 해요. `referenceCodesJson`은 현재 필드만 있으므로 저장·조회·코드/버전 검증을 추가해야 해요. 실패 시 사실·카드는 유지하고 설명만 생략해요. 실제 근거 승인·기관명 판별·의미 검증은 HTTP 클라이언트가 대신하지 않아요.
 
 - 기관명, 연락처, 링크는 `content`의 검토된 카드에서만 가져와요. AI가 만든 값은 쓰지 않아요.
 - 피해 설명 원문과 추출 근거는 DB와 로그에 남기지 않아요.

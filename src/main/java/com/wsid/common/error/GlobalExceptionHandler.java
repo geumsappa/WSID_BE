@@ -37,6 +37,20 @@ public class GlobalExceptionHandler {
         return toResponse(ErrorCode.SESSION_VERSION_CONFLICT);
     }
 
+    @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
+    public ResponseEntity<ErrorResponse> handleIntegrity(org.springframework.dao.DataIntegrityViolationException e) {
+        Throwable cause = e;
+        while (cause != null) {
+            if (cause instanceof org.hibernate.exception.ConstraintViolationException constraint) {
+                String name = constraint.getConstraintName();
+                if ("uq_training_messages_request".equals(name)) return toResponse(ErrorCode.DUPLICATE_REQUEST);
+                if ("uq_training_messages_sequence".equals(name)) return toResponse(ErrorCode.SESSION_VERSION_CONFLICT);
+            }
+            cause = cause.getCause();
+        }
+        throw e;
+    }
+
     private ResponseEntity<ErrorResponse> toResponse(ErrorCode errorCode) {
         return ResponseEntity.status(errorCode.status()).body(ErrorResponse.of(errorCode));
     }

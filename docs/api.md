@@ -29,13 +29,13 @@ URL의 `sessions`는 리소스 이름이에요. 로그인 세션 기능을 켜�
 
 | API ID | 메서드 | 경로 | 인증 | 현재 구현 |
 |---|---|---|---|---|
-| AI-01 | POST | `/internal/ai/discovery/next` | 내부 | 미구현; AiClient TODO |
-| AI-02 | POST | `/internal/ai/ocr/extract` | 내부 | 미구현; 문서에서는 I1에 포함 |
-| AI-03 | POST | `/internal/ai/scenarios/generate` | 내부 | 미구현; 고정 유형·상수 문구로 대체 |
-| AI-04 | POST | `/internal/ai/simulation/reply` | 내부 | 어댑터 구현; 실제 호출은 /internal/training/turn으로 불일치, 맥락 필드 TODO |
-| AI-05 | POST | `/internal/ai/training/evaluate` | 내부 | 미구현; report 문서 계획 |
-| AI-06 | POST | `/internal/ai/solutions/extract` | 내부 | 미구현; AiClient TODO |
-| AI-07 | POST | `/internal/ai/solutions/explain` | 내부 | 미구현; 문서는 I6 근거 검색으로 설명 |
+| AI-01 | POST | `/internal/ai/discovery/next` | 내부 | fake 및 HTTP 어댑터·응답 계약 테스트 구현; 실제 FastAPI 통합 검증은 미완료 |
+| AI-02 | POST | `/internal/ai/ocr/extract` | 내부 | 어댑터 구현(`AiClient.extractText`, fake/HTTP multipart); TRN-05 연결·AI 서비스 통합 검증 미완료 |
+| AI-03 | POST | `/internal/ai/scenarios/generate` | 내부 | fake/HTTP 클라이언트·엄격한 응답 타입 검사·요청 ID·전용 타임아웃 구현. FastAPI·훈련 생성/저장은 미연결. [구현 안내](ai-03-scenario.md) |
+| AI-04 | POST | `/internal/ai/simulation/reply` | 내부 | 새 replySimulation fake/HTTP 클라이언트·응답 타입 검사·계약 테스트 구현. 기존 훈련 서비스는 옛 /internal/training/turn 유지, FastAPI·TRN-08 전환 미완료. [구현 보고서](ai-04-simulation.md) |
+| AI-05 | POST | `/internal/ai/training/evaluate` | 내부 | evaluateTraining fake/HTTP 클라이언트·엄격한 응답 타입 검사·요청 ID·전용 타임아웃 구현. FastAPI·리포트 생성/저장/조회는 미연결. [구현 보고서](ai-05-evaluation.md) |
+| AI-06 | POST | `/internal/ai/solutions/extract` | 내부 | extractSolutionFacts fake/HTTP 클라이언트·엄격한 타입/미확정 집합 검사·요청 ID 구현. 실제 FastAPI·상담 서비스·사실 저장·카드 선택은 미연결. [구현 보고서](ai-06-solution-extract.md) |
+| AI-07 | POST | `/internal/ai/solutions/explain` | 내부 | explainSolution fake/HTTP 클라이언트·엄격한 타입·요청 근거 코드 대조·출력 패턴 검사 구현. 실제 FastAPI/RAG·승인 카탈로그·상담·저장은 미연결. [구현 보고서](ai-07-solution-explain.md) |
 
 ## 회원·인증
 
@@ -88,8 +88,8 @@ TRN-11이 완료되면 리포트를 만들어요. 기본 모드는 규칙 기반
 
 | API ID | 메서드 | 경로 | 인증 | 현재 구현 |
 |---|---|---|---|---|
-| SOL-01 | POST | `/api/solutions/sessions` | 불필요 (비회원 상담 소유권 확인 필요) | SolutionSession.start만; 시작 설명 즉시 추출 없음 |
-| SOL-02 | GET | `/api/solutions/sessions/{id}` | 불필요 (비회원 상담 소유권 확인 필요) | 엔티티·소유자 조건 repository만; 서비스·API 없음 |
+| SOL-01 | POST | `/api/solutions/sessions` | 불필요 (비회원 상담 소유권 확인 필요) | 구현: 회원/비회원 소유자·CSRF·민감정보 거부·AI-06 추출·질문·카드 규칙. 운영 카드 콘텐츠 없음([보고서](sol-01-session-start.md)) |
+| SOL-02 | GET | `/api/solutions/sessions/{id}` | 불필요 (비회원 상담 소유권 확인 필요) | 구현: 조회 전용 소유권 확인·같은 404·현재 검토 카드·메시지 기록([보고서](sol-02-session-get.md)) |
 | SOL-03 | POST | `/api/solutions/sessions/{id}/messages` | 불필요 (비회원 상담 소유권 확인 필요) | 메시지 엔티티만; 서비스·API 없음 |
 | SOL-04 | PATCH | `/api/solutions/sessions/{id}/facts` | 불필요 (비회원 상담 소유권 확인 필요) | factsJson 컬럼만; 병합·재판정·API 없음 |
 | SOL-05 | POST | `/api/solutions/sessions/{id}/complete` | 불필요 (비회원 상담 소유권 확인 필요) | completedAt 컬럼만; 종료 메서드·API 없음 |
@@ -115,3 +115,11 @@ TRN-11이 완료되면 리포트를 만들어요. 기본 모드는 규칙 기반
 기본 `AI_MODE=fake`에서는 상황 답변 3회 뒤 검토된 중고거래 예시로 진행하고, OCR은 직접 입력을 안내해요. `AI_MODE=http`에서는 노션의 AI-01~05 경로와 `success/data` 형식으로 FastAPI를 호출해요. AI 평가가 실패하면 훈련을 완료 처리하지 않아 다시 종료 요청을 보낼 수 있어요.
 
 팀 확인 항목은 내부 AI의 세부 필드(사기 유형 코드, 시나리오 첫 대사), 금융 외 모의 페이지 코드, 프론트 상태 복구에 쓰는 TRN-03 추가 필드(`scenario`, `messages[].phase`, `canGenerateScenario`, `shouldFinish`)예요.
+
+## LSH·OHC 통합
+
+GUIDE-01~04는 LSH의 `GuideCatalog`와 `content/guides.yml`을 사용해요. OHC의 기존 유형 YAML 초안은 참고 자료로 남지만 공개 목록 로더에는 연결하지 않아요.
+
+훈련 공개 API `/api/trainings/**`는 LSH 계약을 사용해요. OHC의 상황 파악·사실 누적 기능은 기존 `/api/training/sessions` 경로의 `/turns`, `/discovery/messages`, `/messages`에서 유지해요. 두 경로의 요청·응답 계약은 서로 달라요.
+
+상담은 OHC의 전용 보안 체인과 `/api/solutions/csrf`를 유지해요. 회원은 `/api/auth/csrf`에서 받은 토큰도 같은 세션 쿠키와 함께 사용할 수 있어요.

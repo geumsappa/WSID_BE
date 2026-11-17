@@ -57,7 +57,7 @@ public class TrainingMessage {
     @ColumnTransformer(write = "cast(? as jsonb)")
     private String optionsJson;
 
-    /** 턴별 평가. 리포트의 턴별 피드백에 써요. */
+    /** 턴별 평가 데이터. 현재는 사용하지 않아요. */
     @Column(name = "turn_evaluation_json", columnDefinition = "jsonb")
     @ColumnTransformer(write = "cast(? as jsonb)")
     private String turnEvaluationJson;

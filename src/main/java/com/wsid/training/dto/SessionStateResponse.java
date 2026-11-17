@@ -15,7 +15,8 @@ public record SessionStateResponse(
         TrainingStatus status,
         int simulationTurnCount,
         boolean keySceneShown,
-        List<HistoryMessage> messages) {
+        List<HistoryMessage> messages,
+        com.wsid.training.domain.DiscoveryStatus discoveryStatus, int questionCount) {
     // TODO(이어하기): 마지막 질문의 선택지(options_json)도 함께 돌려줘요.
 
     public record HistoryMessage(int sequenceNo, MessageSender sender, String content) {
@@ -32,6 +33,6 @@ public record SessionStateResponse(
                 session.getStatus(),
                 session.getSimulationTurnCount(),
                 session.isKeySceneShown(),
-                history);
+                history, session.discoveryStatus(), session.questionCount());
     }
 }

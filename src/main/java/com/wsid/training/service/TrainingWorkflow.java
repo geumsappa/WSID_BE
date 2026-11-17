@@ -381,8 +381,8 @@ public class TrainingWorkflow {
     private int nextSequence(long id) { return (int) messages.countByTrainingId(id) + 1; }
 
     private ObjectNode facts(TrainingSession session) {
-        return session.getContextFacts() == null ? json.createObjectNode()
-                : (ObjectNode) json.readTree(session.getContextFacts());
+        return session.getContextFactsJson() == null ? json.createObjectNode()
+                : (ObjectNode) json.readTree(session.getContextFactsJson());
     }
 
     private JsonNode scenarioJson(TrainingSession session) {

@@ -458,8 +458,13 @@ class RegistrationIntegrationTest {
         long id = started.path("sessionId").asLong();
         createdIds.add(id);
         String turns = path + "/" + id + "/turns";
-        var discovery = data(reportPost(turns, cookie, token, Map.of("stateVersion", started.path("stateVersion").asInt(),
-                "requestId", UUID.randomUUID(), "message", rawText)), 200);
+        // The preserved discovery workflow collects facts before entering simulation.
+        JsonNode discovery = started;
+        for (String answer : List.of(rawText, "중고거래 판매자예요", "문자로 연락했어요")) {
+            discovery = data(reportPost(turns, cookie, token, Map.of("stateVersion", discovery.path("stateVersion").asInt(),
+                    "requestId", UUID.randomUUID(), "message", answer)), 200);
+        }
+        assertEquals("SIMULATION", discovery.path("phase").asText());
         var ended = data(reportPost(turns, cookie, token, Map.of("stateVersion", discovery.path("stateVersion").asInt(),
                 "requestId", UUID.randomUUID(), "message", "연락을 끊고 직접 확인할게요")), 200);
         assertTrue(ended.path("finished").asBoolean());

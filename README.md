@@ -157,3 +157,9 @@ ERD와 명세서를 맞춰 보다가 나온 항목이에요.
 - [ ] **phase, status, sender, input_kind의 값 이름**: 코드의 enum 값은 초안이에요. API 명세와 맞춰 확정해요.
 - [ ] **훈련 중 실제 피해 전환**: 어느 훈련에서 넘어온 대응인지 연결할 컬럼과 훈련의 일시 중지 상태가 ERD에 없어요.
 - [ ] **V2 제약 조건**: FK, 유니크, 인덱스는 제안이에요. 동의하면 ERD에도 반영해 주세요.
+
+## LSH·OHC 통합 개발
+
+GUIDE는 LSH의 `content/guides.yml`과 `GuideCatalog`를 기준으로 사용합니다. AI-01~07 클라이언트와 SOL-01/02는 OHC 구현을 유지합니다. 공개 훈련 API와 기존 훈련 경로의 차이는 [통합 기록](docs/lsh-ohc-integration.md)을 참고하세요.
+
+전체 회귀 검증은 PostgreSQL·Redis를 준비한 뒤 `./gradlew test dbTest integrationTest`로 실행합니다. DB 테스트는 `WSID_TEST_DB_URL`, HTTP 통합 테스트는 `DB_URL`을 사용하므로 두 값 모두 전용 테스트 DB를 가리켜야 합니다.

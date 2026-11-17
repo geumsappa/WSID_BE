@@ -1,22 +1,21 @@
 package com.wsid.training.domain;
 
 import java.time.Duration;
+import java.util.List;
 
-/**
- * 훈련 진행 규칙의 설정값. application.yml의 wsid.training에서 읽어요.
- *
- * @param keySceneDeadlineTurn 이 턴까지 핵심 장면이 안 나왔으면 백엔드가 강제로 표시해요 (SIM-011)
- * @param maxSimulationTurns   가상 훈련의 AI 메시지 최대 개수
- * @param sessionTtl           마지막 활동 뒤 이 시간이 지나면 세션이 만료돼요
- */
-public record TrainingRules(int keySceneDeadlineTurn, int maxSimulationTurns, Duration sessionTtl) {
-
+public record TrainingRules(int keySceneDeadlineTurn, int maxSimulationTurns, Duration sessionTtl,
+        int discoveryBaseQuestions, int discoveryMaxQuestions, int discoveryMinAnswers,
+        List<String> requiredFacts) {
     public TrainingRules {
-        if (keySceneDeadlineTurn < 1 || maxSimulationTurns <= keySceneDeadlineTurn) {
+        if (keySceneDeadlineTurn < 1 || maxSimulationTurns <= keySceneDeadlineTurn)
             throw new IllegalArgumentException("핵심 장면 기한은 1 이상이고 최대 턴보다 작아야 해요.");
-        }
-        if (sessionTtl == null || sessionTtl.isZero() || sessionTtl.isNegative()) {
+        if (sessionTtl == null || sessionTtl.isZero() || sessionTtl.isNegative())
             throw new IllegalArgumentException("세션 만료 시간은 0보다 커야 해요.");
-        }
+        if (discoveryBaseQuestions < 1 || discoveryMaxQuestions < discoveryBaseQuestions
+                || discoveryMinAnswers < 1 || (long) discoveryMinAnswers > (long) discoveryMaxQuestions + 1)
+            throw new IllegalArgumentException("상황 파악 질문·답변 횟수 설정이 올바르지 않아요.");
+        if (requiredFacts == null || requiredFacts.isEmpty() || requiredFacts.stream().anyMatch(k -> !ContextFacts.ALLOWED.contains(k)))
+            throw new IllegalArgumentException("필수 사실은 허용된 키를 사용해야 해요.");
+        requiredFacts = List.copyOf(requiredFacts);
     }
 }

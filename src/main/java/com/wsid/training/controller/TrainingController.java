@@ -47,9 +47,19 @@ public class TrainingController {
         return trainingService.getState(sessionId);
     }
 
-    /** 사용자 답변 전송 (SIM-007) */
+    @PostMapping("/{sessionId}/discovery/messages")
+    public com.wsid.training.dto.DiscoveryResponse submitDiscovery(@PathVariable long sessionId, @Valid @RequestBody SubmitTurnRequest request) {
+        return trainingService.submitDiscovery(sessionId, request);
+    }
+
+    @PostMapping("/{sessionId}/messages")
+    public TurnResponse submitSimulationMessage(@PathVariable long sessionId, @Valid @RequestBody SubmitTurnRequest request) {
+        return trainingService.submitSimulationMessage(sessionId, request);
+    }
+
     @PostMapping("/{sessionId}/turns")
     public TurnResponse submitTurn(@PathVariable long sessionId, @Valid @RequestBody SubmitTurnRequest request) {
         return trainingService.submitTurn(sessionId, request);
     }
+
 }
