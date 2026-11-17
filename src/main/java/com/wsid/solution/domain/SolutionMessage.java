@@ -16,7 +16,7 @@ import org.hibernate.annotations.ColumnTransformer;
 
 /**
  * solution_messages 테이블.
- * safe_content에는 민감정보를 가린 내용만 저장해요. 피해 설명 원문은 저장하지 않아요.
+ * safe_content에는 서버 고정 문구·선택 표현만 저장해요. 피해 설명 원문은 저장하지 않아요.
  */
 @Entity
 @Table(name = "solution_messages")
@@ -43,6 +43,10 @@ public class SolutionMessage {
     /** 사용자가 고른 선택지 코드 */
     @Column(name = "selected_code", length = 100)
     private String selectedCode;
+
+    /** 선택이 가리킨 사실. 옛 메시지는 NULL이며 추정해 채우지 않아요. */
+    @Column(name = "fact_key", length = 50)
+    private String factKey;
 
     /** 이 메시지에서 안내한 카드·근거 문서 코드 목록 */
     @Column(name = "reference_codes_json", columnDefinition = "jsonb")
@@ -80,6 +84,22 @@ public class SolutionMessage {
         message.createdAt = now;
         return message;
     }
+
+    public static SolutionMessage choice(long solutionId, int sequenceNo, SolutionFact fact,
+            FactValue selected, UUID requestId, Instant now) {
+        if (fact == null || selected == null || requestId == null) {
+            throw new IllegalArgumentException("선택 기록이 올바르지 않아요.");
+        }
+        SolutionMessage message = of(solutionId, MessageSender.USER, InputKind.OPTION, sequenceNo,
+                fact.question() + " 선택: " + selected.name(), requestId, now);
+        message.factKey = fact.key();
+        message.selectedCode = selected.name();
+        return message;
+    }
+
+    public String getFactKey() { return factKey; }
+
+    public UUID getClientRequestId() { return clientRequestId; }
 
     public Long getId() {
         return id;

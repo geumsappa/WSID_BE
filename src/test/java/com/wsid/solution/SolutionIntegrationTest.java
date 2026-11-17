@@ -182,6 +182,46 @@ class SolutionIntegrationTest {
         // SOL-02 결정 3(방안 A): 로그인 뒤에는 회원 상담만 열리고 로그인 전 익명 상담은 404예요.
         assertEquals(200, get("/api/solutions/sessions/" + memberSolution, memberCookie).statusCode());
         assertEquals(404, get("/api/solutions/sessions/" + anonymousSolution, memberCookie).statusCode());
+        var memberChoice = SendSolutionMessageRequestTest.choice(UUID.randomUUID(), 0, "transferredMoney", "NO");
+        assertEquals(200, send(message(memberSolution, member, memberChoice.toString())).statusCode());
+        assertEquals(404, send(message(anonymousSolution, member, memberChoice.toString())).statusCode());
+    }
+
+    @Test
+    void anonymousMessagesPersistChoicesAndRejectDuplicateStaleForeignOrExpiredRequests() throws Exception {
+        var browser = csrf(null);
+        long id = track(json.readTree(send(start(browser.cookie, browser, null)).body()).path("data").path("solutionId").asLong());
+        String first = SendSolutionMessageRequestTest.choice(UUID.randomUUID(), 0, "transferredMoney", "NO").toString();
+        var response = send(message(id, browser, first));
+        assertEquals(200, response.statusCode(), response.body());
+        assertEquals(1, json.readTree(response.body()).path("data").path("stateVersion").asInt());
+        assertTrue(response.headers().firstValue("Cache-Control").orElse("").contains("no-store"));
+        var restored = json.readTree(get("/api/solutions/sessions/" + id, browser.cookie).body()).path("data");
+        assertEquals("CHOICE", restored.path("messages").get(2).path("inputKind").asString());
+        assertEquals("NO", restored.path("messages").get(2).path("selectedCode").asString());
+        var duplicate = send(message(id, browser, first));
+        assertEquals(409, duplicate.statusCode()); assertEquals("DUPLICATE_REQUEST", json.readTree(duplicate.body()).path("code").asString());
+        var stale = send(message(id, browser, SendSolutionMessageRequestTest.choice(UUID.randomUUID(), 0, "sharedInformation", "NO").toString()));
+        assertEquals(409, stale.statusCode()); assertEquals("STATE_VERSION_CONFLICT", json.readTree(stale.body()).path("code").asString());
+        var stranger = csrf(null);
+        assertEquals(404, send(message(id, stranger, first)).statusCode());
+        var noToken = request("/api/solutions/sessions/" + id + "/messages", browser.cookie)
+                .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(first)).build();
+        assertEquals(403, send(noToken).statusCode());
+        var failed = send(message(id, browser, SendSolutionMessageRequestTest.text(UUID.randomUUID(), 1, "[AI_FAIL]").toString()));
+        assertEquals(503, failed.statusCode()); assertEquals("AI_SERVICE_UNAVAILABLE", json.readTree(failed.body()).path("code").asString());
+        assertEquals(1, jdbc.queryForObject("SELECT state_version FROM solution_sessions WHERE id = ?", Integer.class, id));
+        assertEquals(4, jdbc.queryForObject("SELECT count(*) FROM solution_messages WHERE solution_id = ?", Integer.class, id));
+        // 세션 만료 뒤 새 CSRF 세션만 받아도 상담 소유권이 새로 생기지 않아요.
+        var sessionKeys = redis.keys(NAMESPACE + ":session:*");
+        if (sessionKeys != null && !sessionKeys.isEmpty()) redis.delete(sessionKeys);
+        var fresh = csrf(browser.cookie);
+        assertEquals(404, send(message(id, fresh, first)).statusCode());
+    }
+
+    private HttpRequest message(long id, Csrf csrf, String body) {
+        return request("/api/solutions/sessions/" + id + "/messages", csrf.cookie).header(csrf.header, csrf.token)
+                .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body)).build();
     }
 
     private record Csrf(String cookie, String header, String token) {}

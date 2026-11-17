@@ -28,6 +28,7 @@ import com.wsid.solution.security.SolutionSecurityConfig;
 import com.wsid.solution.service.SolutionQueryService;
 import com.wsid.solution.service.SensitiveDescriptionGuard;
 import com.wsid.solution.service.StartSolutionService;
+import com.wsid.solution.service.SendSolutionMessageService;
 import jakarta.servlet.Filter;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -68,7 +69,7 @@ class SolutionWebSecurityTest {
     @EnableWebSecurity
     @Import({SecurityConfig.class, SolutionSecurityConfig.class, GlobalExceptionHandler.class, LoginController.class,
             SolutionController.class, SolutionOwnerResolver.class, AnonymousOwnerIssuer.class,
-            SensitiveDescriptionGuard.class, StartSolutionService.class, SolutionQueryService.class})
+            SensitiveDescriptionGuard.class, StartSolutionService.class, SolutionQueryService.class, SendSolutionMessageService.class})
     static class WebConfiguration {
         @Bean static ConversionService conversionService() { return ApplicationConversionService.getSharedInstance(); }
         @Bean AiClient aiClient() { return mock(AiClient.class); }
@@ -116,6 +117,22 @@ class SolutionWebSecurityTest {
         when(messages.save(any())).thenAnswer(i -> { savedMessages.add(i.getArgument(0)); return i.getArgument(0); });
         when(messages.findBySolutionIdOrderBySequenceNoAsc(anyLong())).thenAnswer(i -> savedMessages.stream()
                 .filter(m -> m.getSolutionId() == (long) i.getArgument(0)).toList());
+        when(messages.lastSequence(anyLong())).thenAnswer(i -> savedMessages.stream()
+                .filter(m -> m.getSolutionId() == (long) i.getArgument(0)).mapToInt(SolutionMessage::getSequenceNo).max().orElse(0));
+        when(messages.answeredUnknownKeys(anyLong())).thenAnswer(i -> savedMessages.stream()
+                .filter(m -> m.getSolutionId() == (long) i.getArgument(0) && "UNKNOWN".equals(m.getSelectedCode()))
+                .map(SolutionMessage::getFactKey).filter(Objects::nonNull).toList());
+        when(messages.existsBySolutionIdAndClientRequestId(anyLong(), any())).thenAnswer(i -> savedMessages.stream()
+                .anyMatch(m -> m.getSolutionId() == (long) i.getArgument(0) && Objects.equals(m.getClientRequestId(), i.getArgument(1))));
+        when(sessions.compareAndSet(anyLong(), any(), anyInt(), any())).thenAnswer(i -> {
+            var target = stored.stream().filter(s -> s.getId() == (long) i.getArgument(0)).findFirst().orElseThrow();
+            SolutionSession.Update update = i.getArgument(3);
+            ReflectionTestUtils.setField(target, "factsJson", update.factsJson());
+            ReflectionTestUtils.setField(target, "cardCodesJson", update.cardsJson());
+            ReflectionTestUtils.setField(target, "nextQuestionJson", update.questionJson());
+            ReflectionTestUtils.setField(target, "stateVersion", (int) i.getArgument(2) + 1);
+            return 1;
+        });
         ValueOperations<String, String> values = mock(ValueOperations.class);
         when(ctx.getBean(StringRedisTemplate.class).opsForValue()).thenReturn(values);
         when(values.setIfAbsent(anyString(), anyString(), any(Duration.class))).thenReturn(true);
@@ -337,12 +354,88 @@ class SolutionWebSecurityTest {
         mvc.perform(get("/api/auth/session").session(session)).andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("LOGIN_REQUIRED"));
         var token = csrf(session);
-        int status = mvc.perform(post("/api/solutions/sessions/301/messages").session(session).header(token[0], token[1]))
+        int status = mvc.perform(post("/api/solutions/sessions/301/complete").session(session).header(token[0], token[1]))
                 .andReturn().getResponse().getStatus();
-        assertTrue(status == 401 || status == 403, "아직 구현하지 않은 SOL-03 경로는 공개하지 않아요.");
+        assertTrue(status == 401 || status == 403, "아직 구현하지 않은 SOL-05 경로는 공개하지 않아요.");
         int put = mvc.perform(put("/api/solutions/sessions/301").session(session).header(token[0], token[1]))
                 .andReturn().getResponse().getStatus();
         assertTrue(put == 401 || put == 403);
         // 옛 단수 경로 /api/solution/** 공개 규칙은 LSH SecurityConfig 소유라 그대로 두었어요(연결된 컨트롤러 없음).
+    }
+
+    private MockHttpServletRequestBuilder message(MockHttpSession session, String[] token, String id, String body) {
+        var request = post("/api/solutions/sessions/" + id + "/messages").session(session)
+                .contentType(MediaType.APPLICATION_JSON).content(body);
+        return token == null ? request : request.header(token[0], token[1]);
+    }
+
+    @Test void anonymousChoiceIs200AndRestoresChoiceWithNoRawContent() throws Exception {
+        var browser = new MockHttpSession();
+        var token = csrf(browser);
+        mvc.perform(start(browser, token)).andExpect(status().isCreated());
+        String body = SendSolutionMessageRequestTest.choice(java.util.UUID.randomUUID(), 0, "transferredMoney", "NO").toString();
+        mvc.perform(message(browser, token, "301", body)).andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")))
+                .andExpect(jsonPath("$.success").value(true)).andExpect(jsonPath("$.data.stateVersion").value(1))
+                .andExpect(jsonPath("$.data.facts.transferredMoney").value("NO"))
+                .andExpect(jsonPath("$.data.nextQuestion.factKey").value("sharedInformation"));
+        mvc.perform(get("/api/solutions/sessions/301").session(browser)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.messages[2].inputKind").value("CHOICE"))
+                .andExpect(jsonPath("$.data.messages[2].selectedCode").value("NO"));
+        mvc.perform(message(browser, token, "301", body)).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("DUPLICATE_REQUEST"));
+        verifyNoInteractions(ai);
+    }
+
+    @Test void messageValidationOrderIsCsrfThenIdThenBodyThenOwnership() throws Exception {
+        var browser = new MockHttpSession();
+        var token = csrf(browser);
+        mvc.perform(message(browser, null, "abc", "{")).andExpect(status().isForbidden());
+        mvc.perform(message(browser, token, "abc", "{")).andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("SOLUTION_NOT_FOUND"));
+        mvc.perform(message(browser, token, "301", "{")).andExpect(status().isBadRequest());
+        mvc.perform(message(browser, token, "301", "{} {}")).andExpect(status().isBadRequest());
+        mvc.perform(message(browser, token, "301", "{}")).andExpect(status().isBadRequest());
+        mvc.perform(message(browser, token, "301", " ".repeat(16 * 1024 + 1))).andExpect(status().isBadRequest());
+        mvc.perform(post("/api/solutions/sessions/301/messages").session(browser).header(token[0], token[1]))
+                .andExpect(status().isBadRequest());
+        mvc.perform(message(browser, token, "301", "{}").contentType(MediaType.TEXT_PLAIN))
+                .andExpect(status().isUnsupportedMediaType());
+        String valid = SendSolutionMessageRequestTest.choice(java.util.UUID.randomUUID(), 0, "transferredMoney", "NO").toString();
+        mvc.perform(message(browser, token, "301", valid)).andExpect(status().isNotFound());
+        verifyNoInteractions(ai, sessions);
+    }
+
+    @Test void memberAndAnonymousMessagesRequireOwnCookieAndCsrf() throws Exception {
+        var browser = new MockHttpSession();
+        var token = csrf(browser);
+        mvc.perform(start(browser, token)).andExpect(status().isCreated());
+        String valid = SendSolutionMessageRequestTest.choice(java.util.UUID.randomUUID(), 0, "transferredMoney", "UNKNOWN").toString();
+        var stranger = new MockHttpSession(); var strangerToken = csrf(stranger);
+        mvc.perform(message(stranger, strangerToken, "301", valid)).andExpect(status().isNotFound());
+        mvc.perform(message(browser, strangerToken, "301", valid)).andExpect(status().isForbidden());
+        mvc.perform(message(browser, null, "301", valid)).andExpect(status().isForbidden());
+        var user = mock(User.class); when(user.getId()).thenReturn(42L);
+        when(ctx.getBean(LoginService.class).requireActiveUser(42L)).thenReturn(user);
+        browser.setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY,
+                new SecurityContextImpl(UsernamePasswordAuthenticationToken.authenticated(42L, null, List.of())));
+        mvc.perform(message(browser, token, "301", valid)).andExpect(status().isNotFound());
+        mvc.perform(start(browser, token)).andExpect(status().isCreated());
+        mvc.perform(message(browser, null, "302", valid)).andExpect(status().isForbidden());
+        mvc.perform(message(browser, token, "302", valid)).andExpect(status().isOk());
+        when(ctx.getBean(LoginService.class).requireActiveUser(42L)).thenThrow(new ApiException(ErrorCode.LOGIN_REQUIRED));
+        mvc.perform(message(browser, token, "302", valid)).andExpect(status().isUnauthorized());
+    }
+
+    @Test void textAiFailureIs503AndDoesNotChangeStoredState() throws Exception {
+        var browser = new MockHttpSession(); var token = csrf(browser);
+        mvc.perform(start(browser, token)).andExpect(status().isCreated());
+        when(ai.extractSolutionFacts(any())).thenThrow(new com.wsid.ai.AiUnavailableException("private"));
+        String text = SendSolutionMessageRequestTest.text(java.util.UUID.randomUUID(), 0, "비공개 설명").toString();
+        mvc.perform(message(browser, token, "301", text)).andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("AI_SERVICE_UNAVAILABLE"))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("비공개"))));
+        assertEquals(2, savedMessages.size());
+        assertEquals(0, stored.getFirst().getStateVersion());
     }
 }

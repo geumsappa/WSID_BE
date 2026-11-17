@@ -49,6 +49,37 @@ public final class SolutionFacts {
         return values.get(fact);
     }
 
+    /** AI-06 knownFacts에는 확인한 YES/NO만 보내요. */
+    public Map<String, String> knownValues() {
+        var known = new LinkedHashMap<String, String>();
+        for (SolutionFact fact : SolutionFact.values()) {
+            if (get(fact) != FactValue.UNKNOWN) known.put(fact.key(), get(fact).name());
+        }
+        return Collections.unmodifiableMap(known);
+    }
+
+    public SolutionFacts withChoice(SolutionFact fact, FactValue value) {
+        if (fact == null || value == null) throw new IllegalArgumentException("선택 항목이 필요해요.");
+        var updated = new EnumMap<>(values);
+        updated.put(fact, value);
+        return new SolutionFacts(updated);
+    }
+
+    /** AI는 UNKNOWN만 보완해요. 알려진 값 정정은 SOL-04에서 직접 해요. */
+    public Merge mergeExtracted(SolutionFacts extracted) {
+        if (extracted == null) throw new IllegalArgumentException("추출 사실이 필요해요.");
+        var updated = new EnumMap<>(values);
+        int conflicts = 0;
+        for (SolutionFact fact : SolutionFact.values()) {
+            FactValue proposed = extracted.get(fact);
+            if (get(fact) == FactValue.UNKNOWN) updated.put(fact, proposed);
+            else if (proposed != FactValue.UNKNOWN && proposed != get(fact)) conflicts++;
+        }
+        return new Merge(new SolutionFacts(updated), conflicts);
+    }
+
+    public record Merge(SolutionFacts facts, int conflictCount) {}
+
     /** 질문 순서상 첫 UNKNOWN. 모두 확정이면 비어 있어요. */
     public Optional<SolutionFact> firstUnknown() {
         for (SolutionFact fact : SolutionFact.values()) {

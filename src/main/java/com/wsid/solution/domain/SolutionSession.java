@@ -107,7 +107,16 @@ public class SolutionSession {
         return session;
     }
 
-    // TODO(SOL-03, SOL-04): 사실 갱신·사용자 확정값 보호·카드 재판정을 여기에 추가해요.
+    /** CAS로 저장할 불변 값. 관리 엔티티를 변경하지 않아 @Version UPDATE와 중복되지 않아요. */
+    public static Update prepareUpdate(SolutionFacts facts, List<ResponseCard> cards,
+            SolutionQuestion question, Instant now) {
+        if (facts == null || cards == null || now == null) throw new IllegalArgumentException("갱신 상태가 필요해요.");
+        return new Update(JSON.writeValueAsString(facts.toKeyMap()),
+                JSON.writeValueAsString(cards.stream().map(c -> new CardReference(c.code(), c.version())).toList()),
+                question == null ? null : JSON.writeValueAsString(question), now);
+    }
+
+    public record Update(String factsJson, String cardsJson, String questionJson, Instant updatedAt) {}
 
     /** SOL-02: 저장된 사실. 4개 키·허용 값이 아니면 조용히 고치지 않고 예외를 던져요. */
     public SolutionFacts readFacts() {
