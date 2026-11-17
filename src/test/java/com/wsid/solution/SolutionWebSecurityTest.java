@@ -64,13 +64,75 @@ import tools.jackson.databind.ObjectMapper;
 
 /** 실제 AUTH SecurityConfig + SolutionSecurityConfig 두 체인·CSRF 필터·MVC 바인딩을 거치는 SOL-01/02 웹 테스트. DB·Redis·AI는 대역이에요. */
 class SolutionWebSecurityTest {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"", "{}", " \n { } \t"})
+    void completeAcceptsEmptyBodyOrEmptyObjectAndKeepsSession(String body) throws Exception {
+        var browser = new MockHttpSession(); var token = csrf(browser);
+        mvc.perform(start(browser, token)).andExpect(status().isCreated());
+        var beforeMessages = savedMessages.size();
+        mvc.perform(completion(browser, token, "301", body)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true)).andExpect(jsonPath("$.data.solutionId").value(301))
+                .andExpect(jsonPath("$.data.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.data", org.hamcrest.Matchers.aMapWithSize(2)))
+                .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")));
+        mvc.perform(completion(browser, token, "301", "{}")).andExpect(status().isOk());
+        assertEquals(1, stored.getFirst().getStateVersion()); assertEquals(beforeMessages, savedMessages.size());
+        assertFalse(browser.isInvalid());
+        mvc.perform(get("/api/solutions/sessions/301").session(browser)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.data.nextQuestion").value(org.hamcrest.Matchers.nullValue()));
+        mvc.perform(message(browser, token, "301", SendSolutionMessageRequestTest.text(java.util.UUID.randomUUID(), 1, "설명").toString()))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("SOLUTION_FINISHED"));
+        mvc.perform(patch("/api/solutions/sessions/301/facts").session(browser).header(token[0], token[1])
+                .contentType(MediaType.APPLICATION_JSON).content("{\"stateVersion\":1,\"changes\":{\"installedApp\":\"NO\"}}"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("SOLUTION_FINISHED"));
+        mvc.perform(start(browser, token)).andExpect(status().isCreated());
+        verifyNoInteractions(ai);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"null", "[]", "\"{}\"", " ", "true", "0", "{}{}", "{", "{\"stateVersion\":0}", "{\"x\":1,\"x\":2}"})
+    void completeRejectsEveryOtherBodyWithoutCallingDb(String body) throws Exception {
+        var browser = new MockHttpSession(); var token = csrf(browser);
+        mvc.perform(completion(browser, token, "301", body)).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        verifyNoInteractions(sessions, ai);
+    }
+
+    @Test void completionValidationOrderAndOwnershipAreEnforced() throws Exception {
+        var browser = new MockHttpSession(); var token = csrf(browser);
+        mvc.perform(completion(browser, null, "abc", "{")).andExpect(status().isForbidden());
+        mvc.perform(completion(browser, token, "abc", "{")).andExpect(status().isNotFound());
+        mvc.perform(completion(browser, token, "301", " ".repeat(16 * 1024 + 1))).andExpect(status().isBadRequest());
+        mvc.perform(completion(browser, token, "301", "{}")).andExpect(status().isNotFound());
+        mvc.perform(start(browser, token)).andExpect(status().isCreated());
+        var stranger = new MockHttpSession(); var otherToken = csrf(stranger);
+        mvc.perform(completion(stranger, otherToken, "301", "")).andExpect(status().isNotFound());
+        mvc.perform(completion(browser, otherToken, "301", "")).andExpect(status().isForbidden());
+        var user = mock(User.class); when(user.getId()).thenReturn(42L);
+        when(ctx.getBean(LoginService.class).requireActiveUser(42L)).thenReturn(user);
+        browser.setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY,
+                new SecurityContextImpl(UsernamePasswordAuthenticationToken.authenticated(42L, null, List.of())));
+        mvc.perform(completion(browser, token, "301", "")).andExpect(status().isNotFound());
+        mvc.perform(start(browser, token)).andExpect(status().isCreated());
+        mvc.perform(completion(browser, null, "302", "")).andExpect(status().isForbidden());
+        mvc.perform(completion(browser, token, "302", "")).andExpect(status().isOk());
+        when(ctx.getBean(LoginService.class).requireActiveUser(42L)).thenThrow(new ApiException(ErrorCode.LOGIN_REQUIRED));
+        mvc.perform(completion(browser, token, "302", "")).andExpect(status().isUnauthorized());
+    }
+
+    private MockHttpServletRequestBuilder completion(MockHttpSession session, String[] token, String id, String body) {
+        var request = post("/api/solutions/sessions/" + id + "/complete").session(session).content(body);
+        return token == null ? request : request.header(token[0], token[1]);
+    }
+
     @Configuration(proxyBeanMethods = false)
     @EnableWebMvc
     @EnableWebSecurity
     @Import({SecurityConfig.class, SolutionSecurityConfig.class, GlobalExceptionHandler.class, LoginController.class,
             SolutionController.class, SolutionOwnerResolver.class, AnonymousOwnerIssuer.class,
             SensitiveDescriptionGuard.class, StartSolutionService.class, SolutionQueryService.class, SendSolutionMessageService.class,
-            com.wsid.solution.service.UpdateSolutionFactsService.class})
+            com.wsid.solution.service.UpdateSolutionFactsService.class, com.wsid.solution.service.CompleteSolutionService.class})
     static class WebConfiguration {
         @Bean static ConversionService conversionService() { return ApplicationConversionService.getSharedInstance(); }
         @Bean AiClient aiClient() { return mock(AiClient.class); }
@@ -132,6 +194,16 @@ class SolutionWebSecurityTest {
             ReflectionTestUtils.setField(target, "cardCodesJson", update.cardsJson());
             ReflectionTestUtils.setField(target, "nextQuestionJson", update.questionJson());
             ReflectionTestUtils.setField(target, "stateVersion", (int) i.getArgument(2) + 1);
+            return 1;
+        });
+        when(sessions.completeActive(anyLong(), any(), any())).thenAnswer(i -> {
+            var target = stored.stream().filter(s -> s.getId() == (long) i.getArgument(0)).findFirst().orElseThrow();
+            if (target.getStatus() != com.wsid.solution.domain.SolutionStatus.ACTIVE) return 0;
+            ReflectionTestUtils.setField(target, "status", com.wsid.solution.domain.SolutionStatus.COMPLETED);
+            ReflectionTestUtils.setField(target, "completedAt", i.getArgument(2));
+            ReflectionTestUtils.setField(target, "updatedAt", i.getArgument(2));
+            ReflectionTestUtils.setField(target, "nextQuestionJson", null);
+            ReflectionTestUtils.setField(target, "stateVersion", target.getStateVersion() + 1);
             return 1;
         });
         ValueOperations<String, String> values = mock(ValueOperations.class);
@@ -355,12 +427,15 @@ class SolutionWebSecurityTest {
         mvc.perform(get("/api/auth/session").session(session)).andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("LOGIN_REQUIRED"));
         var token = csrf(session);
-        int status = mvc.perform(post("/api/solutions/sessions/301/complete").session(session).header(token[0], token[1]))
+        int status = mvc.perform(delete("/api/solutions/sessions/301").session(session).header(token[0], token[1]))
                 .andReturn().getResponse().getStatus();
-        assertTrue(status == 401 || status == 403, "아직 구현하지 않은 SOL-05 경로는 공개하지 않아요.");
+        assertTrue(status == 401 || status == 403, "명세에 없는 DELETE는 공개하지 않아요.");
         int put = mvc.perform(put("/api/solutions/sessions/301").session(session).header(token[0], token[1]))
                 .andReturn().getResponse().getStatus();
         assertTrue(put == 401 || put == 403);
+        int getMessages = mvc.perform(get("/api/solutions/sessions/301/messages").session(session))
+                .andReturn().getResponse().getStatus();
+        assertTrue(getMessages == 401 || getMessages == 403);
         // 옛 단수 경로 /api/solution/** 공개 규칙은 LSH SecurityConfig 소유라 그대로 두었어요(연결된 컨트롤러 없음).
     }
 

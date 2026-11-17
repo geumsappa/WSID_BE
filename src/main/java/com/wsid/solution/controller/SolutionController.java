@@ -9,11 +9,13 @@ import com.wsid.solution.dto.StartSolutionResponse;
 import com.wsid.solution.dto.SendSolutionMessageRequest;
 import com.wsid.solution.dto.SolutionMessageResponse;
 import com.wsid.solution.dto.UpdateSolutionFactsRequest;
+import com.wsid.solution.dto.CompleteSolutionResponse;
 import com.wsid.solution.security.SolutionOwnerResolver;
 import com.wsid.solution.service.SolutionQueryService;
 import com.wsid.solution.service.StartSolutionService;
 import com.wsid.solution.service.SendSolutionMessageService;
 import com.wsid.solution.service.UpdateSolutionFactsService;
+import com.wsid.solution.service.CompleteSolutionService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
@@ -45,7 +47,7 @@ import tools.jackson.databind.json.JsonMapper;
 @RequestMapping("/api/solutions")
 public class SolutionController {
     private static final Pattern POSITIVE_ID = Pattern.compile("[1-9][0-9]{0,18}");
-    /** SOL-03·04 본문 파서. 후행 JSON과 중복 키를 거부해요(SOL-01은 기본 바인딩을 그대로 써요). */
+    /** SOL-03~05 본문 파서. 후행 JSON과 중복 키를 거부해요(SOL-01은 기본 바인딩을 그대로 써요). */
     private static final ObjectMapper STRICT_JSON = JsonMapper.builder()
             .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
             .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION).build();
@@ -56,14 +58,17 @@ public class SolutionController {
     private final SolutionOwnerResolver owners;
     private final SendSolutionMessageService messageService;
     private final UpdateSolutionFactsService factsService;
+    private final CompleteSolutionService completeService;
 
     public SolutionController(StartSolutionService startService, SolutionQueryService queryService,
-            SolutionOwnerResolver owners, SendSolutionMessageService messageService, UpdateSolutionFactsService factsService) {
+            SolutionOwnerResolver owners, SendSolutionMessageService messageService, UpdateSolutionFactsService factsService,
+            CompleteSolutionService completeService) {
         this.startService = startService;
         this.queryService = queryService;
         this.owners = owners;
         this.messageService = messageService;
         this.factsService = factsService;
+        this.completeService = completeService;
     }
 
     /**
@@ -115,14 +120,34 @@ public class SolutionController {
         return ApiResponse.ok(factsService.update(solutionId, input, () -> owners.findExisting(authentication, request)));
     }
 
-    private static JsonNode strictBody(HttpServletRequest request) throws HttpMediaTypeNotSupportedException {
+    /** SOL-05: 본문 없음 또는 빈 JSON 객체만 허용하고 최신 ACTIVE 상태를 종료해요. */
+    @PostMapping("/sessions/{id}/complete")
+    @ResponseStatus(HttpStatus.OK)
+    public ApiResponse<CompleteSolutionResponse> complete(@PathVariable("id") String id,
+            Authentication authentication, HttpServletRequest request) {
+        long solutionId = parseId(id);
+        byte[] bytes = limitedBody(request);
+        if (bytes.length != 0) {
+            JsonNode body = parseStrictJson(bytes);
+            if (body == null || !body.isObject() || !body.isEmpty()) throw new ApiException(ErrorCode.INVALID_REQUEST);
+        }
+        return ApiResponse.ok(completeService.complete(solutionId, () -> owners.findExisting(authentication, request)));
+    }
+
+    private static byte[] limitedBody(HttpServletRequest request) {
         byte[] bytes;
         try {
             bytes = request.getInputStream().readNBytes(MAX_BODY_BYTES + 1);
         } catch (IOException e) {
             throw new ApiException(ErrorCode.INVALID_REQUEST);
         }
-        if (bytes.length == 0 || bytes.length > MAX_BODY_BYTES) throw new ApiException(ErrorCode.INVALID_REQUEST);
+        if (bytes.length > MAX_BODY_BYTES) throw new ApiException(ErrorCode.INVALID_REQUEST);
+        return bytes;
+    }
+
+    private static JsonNode strictBody(HttpServletRequest request) throws HttpMediaTypeNotSupportedException {
+        byte[] bytes = limitedBody(request);
+        if (bytes.length == 0) throw new ApiException(ErrorCode.INVALID_REQUEST);
         MediaType type;
         try {
             if (request.getContentType() == null) throw new HttpMediaTypeNotSupportedException("application/json is required");
@@ -133,6 +158,10 @@ public class SolutionController {
         if (!"application".equals(type.getType()) || !("json".equals(type.getSubtype()) || type.getSubtype().endsWith("+json"))) {
             throw new HttpMediaTypeNotSupportedException(type, java.util.List.of(MediaType.APPLICATION_JSON));
         }
+        return parseStrictJson(bytes);
+    }
+
+    private static JsonNode parseStrictJson(byte[] bytes) {
         try {
             return STRICT_JSON.readTree(bytes);
         } catch (JacksonException e) {

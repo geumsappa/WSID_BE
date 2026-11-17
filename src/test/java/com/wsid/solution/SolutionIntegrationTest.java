@@ -185,6 +185,10 @@ class SolutionIntegrationTest {
         var memberChoice = SendSolutionMessageRequestTest.choice(UUID.randomUUID(), 0, "transferredMoney", "NO");
         assertEquals(200, send(message(memberSolution, member, memberChoice.toString())).statusCode());
         assertEquals(404, send(message(anonymousSolution, member, memberChoice.toString())).statusCode());
+        assertEquals(200, send(completion(memberSolution, member, null)).statusCode());
+        assertEquals(200, send(completion(memberSolution, member, "{}")).statusCode());
+        assertEquals(404, send(completion(anonymousSolution, member, null)).statusCode());
+        assertEquals(200, get("/api/auth/session", memberCookie).statusCode(), "상담 종료로 로그인 세션을 끝내지 않아요.");
     }
 
     @Test
@@ -260,6 +264,58 @@ class SolutionIntegrationTest {
     private HttpRequest message(long id, Csrf csrf, String body) {
         return request("/api/solutions/sessions/" + id + "/messages", csrf.cookie).header(csrf.header, csrf.token)
                 .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body)).build();
+    }
+
+    @Test
+    void anonymousCompletionIsRepeatableAndKeepsOtherSessionsUsable() throws Exception {
+        var browser = csrf(null);
+        long id = track(json.readTree(send(start(browser.cookie, browser, null)).body()).path("data").path("solutionId").asLong());
+        var before = jdbc.queryForMap("SELECT facts_json, card_codes_json, created_at FROM solution_sessions WHERE id = ?", id);
+        var response = send(completion(id, browser, null));
+        assertEquals(200, response.statusCode(), response.body());
+        JsonNode data = json.readTree(response.body()).path("data");
+        assertEquals(2, data.size()); assertEquals(id, data.path("solutionId").asLong());
+        assertEquals("COMPLETED", data.path("status").asString());
+        assertTrue(response.headers().firstValue("Cache-Control").orElse("").contains("no-store"));
+        var after = jdbc.queryForMap("SELECT completed_at, updated_at, state_version FROM solution_sessions WHERE id = ?", id);
+        assertEquals(200, send(completion(id, browser, "{}")).statusCode());
+        assertEquals(after, jdbc.queryForMap("SELECT completed_at, updated_at, state_version FROM solution_sessions WHERE id = ?", id));
+        assertEquals(before, jdbc.queryForMap("SELECT facts_json, card_codes_json, created_at FROM solution_sessions WHERE id = ?", id));
+        assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM solution_messages WHERE solution_id = ?", Integer.class, id));
+        var restored = get("/api/solutions/sessions/" + id, browser.cookie);
+        assertEquals(200, restored.statusCode()); assertTrue(json.readTree(restored.body()).path("data").path("nextQuestion").isNull());
+        var lateMessage = send(message(id, browser, SendSolutionMessageRequestTest.text(UUID.randomUUID(), 1, "설명").toString()));
+        assertEquals(409, lateMessage.statusCode()); assertEquals("SOLUTION_FINISHED", json.readTree(lateMessage.body()).path("code").asString());
+        var correction = request("/api/solutions/sessions/" + id + "/facts", browser.cookie).header(browser.header, browser.token)
+                .header("Content-Type", "application/json").method("PATCH", HttpRequest.BodyPublishers.ofString("{\"stateVersion\":1,\"changes\":{\"installedApp\":\"NO\"}}")).build();
+        assertEquals(409, send(correction).statusCode());
+        var next = send(start(browser.cookie, browser, null)); assertEquals(201, next.statusCode());
+        long nextId = track(json.readTree(next.body()).path("data").path("solutionId").asLong());
+        assertEquals(owner(id), owner(nextId));
+        var stranger = csrf(null); assertEquals(404, send(completion(id, stranger, null)).statusCode());
+        var noToken = request("/api/solutions/sessions/" + id + "/complete", browser.cookie).POST(HttpRequest.BodyPublishers.noBody()).build();
+        assertEquals(403, send(noToken).statusCode());
+        var keys = redis.keys(NAMESPACE + ":session:*"); if (keys != null && !keys.isEmpty()) redis.delete(keys);
+        var fresh = csrf(browser.cookie); assertEquals(404, send(completion(id, fresh, null)).statusCode());
+    }
+
+    @Test
+    void completionHandlesUnknownLengthBodyAndRejectsUnsupportedPayloads() throws Exception {
+        var browser = csrf(null);
+        long id = track(json.readTree(send(start(browser.cookie, browser, null)).body()).path("data").path("solutionId").asLong());
+        for (String body : List.of("null", "[]", "{\"stateVersion\":0}", "{}{}", " ", "{")) {
+            assertEquals(400, send(completion(id, browser, body)).statusCode());
+        }
+        var unknownLength = HttpRequest.BodyPublishers.fromPublisher(HttpRequest.BodyPublishers.ofString(" {} "));
+        assertEquals(-1, unknownLength.contentLength());
+        var request = request("/api/solutions/sessions/" + id + "/complete", browser.cookie).header(browser.header, browser.token)
+                .POST(unknownLength).build();
+        assertEquals(200, send(request).statusCode());
+    }
+
+    private HttpRequest completion(long id, Csrf csrf, String body) {
+        var builder = request("/api/solutions/sessions/" + id + "/complete", csrf.cookie).header(csrf.header, csrf.token);
+        return builder.POST(body == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(body)).build();
     }
 
     private record Csrf(String cookie, String header, String token) {}

@@ -7,6 +7,7 @@ import com.wsid.solution.domain.ResponseCard;
 import com.wsid.solution.domain.ResponseCardCatalog;
 import com.wsid.solution.domain.SolutionOwner;
 import com.wsid.solution.domain.SolutionSession;
+import com.wsid.solution.domain.SolutionStatus;
 import com.wsid.solution.dto.SolutionStateResponse;
 import com.wsid.solution.dto.StartSolutionResponse;
 import com.wsid.solution.repository.SolutionMessageRepository;
@@ -58,7 +59,8 @@ public class SolutionQueryService {
                     .map(SolutionStateResponse.Message::from).toList();
             return new SolutionStateResponse(session.getId(), session.getStatus(), session.getStateVersion(),
                     session.readFacts().toKeyMap(), currentCards(session),
-                    StartSolutionResponse.Question.from(session.readNextQuestion()), history);
+                    session.getStatus() == SolutionStatus.COMPLETED ? null
+                            : StartSolutionResponse.Question.from(session.readNextQuestion()), history);
         });
     }
 

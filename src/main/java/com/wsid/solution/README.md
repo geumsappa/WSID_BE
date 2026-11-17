@@ -28,7 +28,7 @@
 | SOL-02 | GET | `/api/solutions/sessions/{id}` | 불필요 (비회원 상담 소유권 확인 필요) | 구현([보고서](../../../../../../docs/sol-02-session-get.md)) |
 | SOL-03 | POST | `/api/solutions/sessions/{id}/messages` | 불필요 (비회원 상담 소유권 확인 필요) | 구현([보고서](../../../../../../docs/sol-03-session-message.md)) |
 | SOL-04 | PATCH | `/api/solutions/sessions/{id}/facts` | 불필요 (비회원 상담 소유권 확인 필요) | 구현([보고서](../../../../../../docs/sol-04-facts-update.md)) |
-| SOL-05 | POST | `/api/solutions/sessions/{id}/complete` | 불필요 (비회원 상담 소유권 확인 필요) | completedAt 컬럼만; 종료 메서드·API 없음 |
+| SOL-05 | POST | `/api/solutions/sessions/{id}/complete` | 불필요 (비회원 상담 소유권 확인 필요) | 구현([보고서](../../../../../../docs/sol-05-session-complete.md)) |
 
 소유자는 `SolutionOwnerResolver`가 정해요. 회원은 로그인 principal, 비회원은 HTTP 세션에 발급한 익명 UUID(`anonymous_owner_id`, V3)예요. 비회원은 `GET /api/solutions/csrf`로 세션·토큰을 받은 뒤 같은 쿠키와 `X-CSRF-TOKEN`으로 요청해요. 보안 규칙은 AUTH의 `SecurityConfig`가 아니라 `security/SolutionSecurityConfig`(`/api/solutions/**` 전용 체인)에 있어요. 조회는 `SolutionOwnerResolver.findExisting`(새 세션·UUID를 만들지 않음)과 `SolutionSessionRepository.findOwned`로만 하고, 상담 ID만 받아 타인 상담을 조회하게 만들지 않아요.
 
@@ -71,3 +71,11 @@ AI-07은 [구현 보고서](../../../../../../docs/ai-07-solution-explain.md)의
 [구현 보고서](../../../../../../docs/sol-03-session-message.md)의 5·7·8장을 먼저 읽어요. SOL-03은 READ COMMITTED의 조건부 UPDATE로 버전을 한 번 올린 뒤 같은 트랜잭션에서 메시지를 저장해요. `SolutionSessionUpdates`와 JPA 엔티티 dirty checking을 섞지 않아요. SOL-04·05도 소유권·ACTIVE·버전 경쟁 규칙을 지켜야 해요. 선택 factKey는 V4의 메시지 컬럼에 저장하며 원문이나 선택 키를 reference_codes_json에 넣지 않아요.
 
 TEXT의 knownFacts에는 YES/NO만 보내고 기존 YES/NO는 AI로 바꾸지 않아요. 같은 requestId가 이미 반영됐으면 409 DUPLICATE_REQUEST 후 SOL-02로 복원해요. AI 실패는 503이며 상태를 초기화하지 않아요. UNKNOWN 선택은 다음 질문으로 넘어가고, 그대로 유지된 질문은 SYSTEM 메시지로 반복 저장하지 않아요. 운영 카탈로그는 아직 비어 있어 필요한 카드가 없으면 503이에요.
+
+## SOL-05 종료·후속 개발 기준
+
+[구현 보고서](../../../../../../docs/sol-05-session-complete.md)에 파일별 역할과 프론트·명세 전달 내용을 정리했어요. `CompleteSolutionService`는 기존 소유자를 확인하고 `completeActive`로 최신 ACTIVE 상태만 한 번 종료해요. 본문 없음 또는 빈 JSON 객체를 받으며 stateVersion을 요구하지 않아요. 반복 종료는 시각·버전 변경 없이 200이에요.
+
+최초 종료는 completed_at·updated_at·state_version+1·next_question_json=NULL을 한 SQL로 저장해요. 사실·카드·메시지·HTTP 세션은 그대로예요. SOL-03·04 수정이 먼저 커밋되면 그 상태까지 포함해 종료하고, 종료가 먼저면 뒤늦은 수정은 SOLUTION_FINISHED예요. 기대 버전 기반 사실 CAS와 버전 입력 없는 종료를 혼동하지 않아요.
+
+완료 상담의 SOL-02 응답은 nextQuestion=null이에요. 종료 시 AI/카드 조회·리포트 생성·로그아웃·데이터 삭제는 하지 않아요. 재개 기능이나 보관/삭제 정책은 별도로 설계해야 해요.

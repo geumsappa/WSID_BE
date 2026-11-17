@@ -51,6 +51,17 @@ class SolutionQueryServiceTest {
         return new SolutionQueryService(sessions, messages, catalog, transactions);
     }
 
+    @Test void completedResponseHidesStoredQuestionWithoutRepairingDb() {
+        ReflectionTestUtils.setField(session, "status", SolutionStatus.COMPLETED);
+        String question = "{\"factKey\":\"installedApp\",\"content\":\"앱을 설치했나요?\",\"options\":[\"YES\",\"NO\",\"UNKNOWN\"]}";
+        ReflectionTestUtils.setField(session, "nextQuestionJson", question);
+        var result = service(SolutionDomainTest.CATALOG).get(301L, () -> Optional.of(owner));
+        assertNull(result.nextQuestion());
+        assertEquals(SolutionStatus.COMPLETED, result.status());
+        assertEquals(question, session.getNextQuestionJson());
+        verify(sessions, never()).save(any());
+    }
+
     @Test
     void readsOwnedStateInReadOnlyRepeatableReadTransaction() {
         var response = service(SolutionDomainTest.CATALOG).get(301L, () -> Optional.of(owner));
