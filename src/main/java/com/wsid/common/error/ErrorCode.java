@@ -38,6 +38,7 @@ public enum ErrorCode {
     SENSITIVE_DATA_DETECTED(HttpStatus.BAD_REQUEST, "주민등록번호, 계좌·카드번호, 전화번호, 인증번호 같은 정보는 빼고 다시 입력해 주세요."),
     /** 없는 상담과 다른 사람의 상담을 구분하지 않고 같은 404로 응답해요(SOL-02~05). */
     SOLUTION_NOT_FOUND(HttpStatus.NOT_FOUND, "상담을 찾을 수 없어요."),
+    SOLUTION_FINISHED(HttpStatus.CONFLICT, "이미 끝난 상담이에요."),
     /** 규칙이 요구하는 검토된 대응 카드가 없을 때. 긴급 안내를 빠뜨린 성공 응답을 보내지 않아요. */
     RESPONSE_CONTENT_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "대응 안내를 준비하지 못했어요. 잠시 후 다시 시도해 주세요.");
 

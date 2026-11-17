@@ -30,7 +30,7 @@ AI-01 개발 흐름과 요청·응답 초안은 [상황 파악 다음 질문 개
 | AI-03 | POST | `/internal/ai/scenarios/generate` | 내부 | fake/HTTP 클라이언트·응답 타입 검사·요청 ID·전용 타임아웃 구현. 실제 FastAPI·TRN-06 연결은 미완료 |
 | AI-04 | POST | `/internal/ai/simulation/reply` | 내부 | replySimulation fake/HTTP 클라이언트·엄격한 응답 검사 구현. 기존 훈련 서비스는 옛 메서드·경로 유지, 실제 FastAPI·서비스 전환 미완료 |
 | AI-05 | POST | `/internal/ai/training/evaluate` | 내부 | evaluateTraining fake/HTTP 클라이언트·엄격한 응답 검사·전용 타임아웃 구현. 실제 FastAPI·리포트 서비스 연결은 미완료 |
-| AI-06 | POST | `/internal/ai/solutions/extract` | 내부 | extractSolutionFacts fake/HTTP 클라이언트·엄격한 타입/미확정 집합 검사 구현. 실제 FastAPI·상담 서비스·저장·카드 선택은 미연결 |
+| AI-06 | POST | `/internal/ai/solutions/extract` | 내부 | extractSolutionFacts fake/HTTP 클라이언트·엄격한 타입/미확정 집합 검사 구현. SOL-01·03 상담에 연결. 실제 FastAPI·운영 카드 콘텐츠는 미연결 |
 | AI-07 | POST | `/internal/ai/solutions/explain` | 내부 | explainSolution fake/HTTP 클라이언트·요청 코드 대조·명시적 출력 패턴 검사 구현. 실제 FastAPI/RAG·승인 확인·상담 연결은 미완료 |
 
 새 `replySimulation`은 목표 AI-04 경로를 호출해요. 현재 훈련 서비스는 이전 `suggestTrainingTurn`과 `/internal/training/turn`을 계속 사용해요. 실제 AI 서비스 통합과 시나리오 저장·이력 구성·서비스 전환은 후속 작업이에요. 새 DTO에 시나리오·최근 대화를 담을 수 있지만 기존 서비스가 자동으로 이 맥락을 전달하지는 않아요.
@@ -92,13 +92,13 @@ Spring 1차 클라이언트만 구현했고 실제 리포트 생성·저장은 �
 
 ## AI-06 피해 사실 추출 계약과 FastAPI 개발 시 참고
 
-Spring 클라이언트만 구현했고 실제 상담 API·사실 누적·카드 선택은 아직 연결하지 않았어요. 파일별 상호작용은 [AI-06 구현 보고서](../../../../../../docs/ai-06-solution-extract.md)의 7·8장, FastAPI 개발 디렉토리별 계약은 9장을 참고해요.
+Spring 클라이언트는 SOL-01 시작과 SOL-03 메시지 서비스에 연결했어요. 실제 FastAPI·운영 카드 콘텐츠는 아직 미연결이에요. SOL-03 파일별 후속 작업은 [구현 보고서](../../../../../../docs/sol-03-session-message.md)의 7·8장을 참고해요. 파일별 상호작용은 [AI-06 구현 보고서](../../../../../../docs/ai-06-solution-extract.md)의 7·8장, FastAPI 개발 디렉토리별 계약은 9장을 참고해요.
 
 - `AiClient.extractSolutionFacts(SolutionExtractRequest)`에 설명·현재 사실 Map·UUID를 전달해요. 설명은 1,000자 이하, knownFacts는 빈/부분 Map을 허용해요. DTO가 개인정보를 자동으로 가리지 않으므로 호출 전에 필요한 상황만 남겨야 해요.
 - 사실 키는 transferredMoney·contactContinues·sharedInformation·installedApp, 값은 YES·NO·UNKNOWN 문자열만 받아요. 응답은 4개 필드 전체와 uncertainFields를 필수로 반환해요.
 - 실제 boolean success와 실제 문자열 사실 값을 JsonNode로 확인한 뒤 변환해요. uncertainFields는 중복 없이 UNKNOWN인 키와 정확히 같아야 하며, 전부 확정되어도 빈 배열을 생략하면 안 돼요.
 - requestId는 JSON에서 제외하고 X-Request-Id 헤더로 보내요. 기존 공통 restClient/readTimeout을 사용하며 자동 재시도는 하지 않아요.
-- 결과는 제안이에요. 사용자 확정값 보호·충돌 확인·실패 시 직접 선택·대응 카드 결정·DB 저장은 후속 solution 서비스에서 처리해요. 원문·추출 근거는 저장하거나 로그에 남기지 않아요.
+- 결과는 제안이에요. SOL-03은 knownFacts에 YES/NO만 보내고 기존 YES/NO는 유지하며 UNKNOWN만 보완해요. 충돌은 개수만 기록하고 사실 정정은 SOL-04에서 하도록 안내해야 해요. 카드 결정·DB 저장은 solution 서비스 책임이에요. 원문·추출 근거는 저장하거나 로그에 남기지 않아요.
 - FastAPI의 제안 경로 `schemas/solution_extract.py`·`routers/solutions.py`·`services/solution_extractor.py`에 계약과 추정 금지 규칙을 적용해야 해요. Python 코드는 이 저장소에 없어요. 형식 검증만으로 실제 LLM의 추정 방지를 보장할 수는 없어요.
 
 ## AI-07 근거 설명 계약과 후속 연결

@@ -182,6 +182,140 @@ class SolutionIntegrationTest {
         // SOL-02 결정 3(방안 A): 로그인 뒤에는 회원 상담만 열리고 로그인 전 익명 상담은 404예요.
         assertEquals(200, get("/api/solutions/sessions/" + memberSolution, memberCookie).statusCode());
         assertEquals(404, get("/api/solutions/sessions/" + anonymousSolution, memberCookie).statusCode());
+        var memberChoice = SendSolutionMessageRequestTest.choice(UUID.randomUUID(), 0, "transferredMoney", "NO");
+        assertEquals(200, send(message(memberSolution, member, memberChoice.toString())).statusCode());
+        assertEquals(404, send(message(anonymousSolution, member, memberChoice.toString())).statusCode());
+        assertEquals(200, send(completion(memberSolution, member, null)).statusCode());
+        assertEquals(200, send(completion(memberSolution, member, "{}")).statusCode());
+        assertEquals(404, send(completion(anonymousSolution, member, null)).statusCode());
+        assertEquals(200, get("/api/auth/session", memberCookie).statusCode(), "상담 종료로 로그인 세션을 끝내지 않아요.");
+    }
+
+    @Test
+    void anonymousMessagesPersistChoicesAndRejectDuplicateStaleForeignOrExpiredRequests() throws Exception {
+        var browser = csrf(null);
+        long id = track(json.readTree(send(start(browser.cookie, browser, null)).body()).path("data").path("solutionId").asLong());
+        String first = SendSolutionMessageRequestTest.choice(UUID.randomUUID(), 0, "transferredMoney", "NO").toString();
+        var response = send(message(id, browser, first));
+        assertEquals(200, response.statusCode(), response.body());
+        assertEquals(1, json.readTree(response.body()).path("data").path("stateVersion").asInt());
+        assertTrue(response.headers().firstValue("Cache-Control").orElse("").contains("no-store"));
+        var restored = json.readTree(get("/api/solutions/sessions/" + id, browser.cookie).body()).path("data");
+        assertEquals("CHOICE", restored.path("messages").get(2).path("inputKind").asString());
+        assertEquals("NO", restored.path("messages").get(2).path("selectedCode").asString());
+        var duplicate = send(message(id, browser, first));
+        assertEquals(409, duplicate.statusCode()); assertEquals("DUPLICATE_REQUEST", json.readTree(duplicate.body()).path("code").asString());
+        var stale = send(message(id, browser, SendSolutionMessageRequestTest.choice(UUID.randomUUID(), 0, "sharedInformation", "NO").toString()));
+        assertEquals(409, stale.statusCode()); assertEquals("STATE_VERSION_CONFLICT", json.readTree(stale.body()).path("code").asString());
+        var stranger = csrf(null);
+        assertEquals(404, send(message(id, stranger, first)).statusCode());
+        var noToken = request("/api/solutions/sessions/" + id + "/messages", browser.cookie)
+                .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(first)).build();
+        assertEquals(403, send(noToken).statusCode());
+        var failed = send(message(id, browser, SendSolutionMessageRequestTest.text(UUID.randomUUID(), 1, "[AI_FAIL]").toString()));
+        assertEquals(503, failed.statusCode()); assertEquals("AI_SERVICE_UNAVAILABLE", json.readTree(failed.body()).path("code").asString());
+        assertEquals(1, jdbc.queryForObject("SELECT state_version FROM solution_sessions WHERE id = ?", Integer.class, id));
+        assertEquals(4, jdbc.queryForObject("SELECT count(*) FROM solution_messages WHERE solution_id = ?", Integer.class, id));
+        // 세션 만료 뒤 새 CSRF 세션만 받아도 상담 소유권이 새로 생기지 않아요.
+        var sessionKeys = redis.keys(NAMESPACE + ":session:*");
+        if (sessionKeys != null && !sessionKeys.isEmpty()) redis.delete(sessionKeys);
+        var fresh = csrf(browser.cookie);
+        assertEquals(404, send(message(id, fresh, first)).statusCode());
+    }
+
+    @Test
+    void anonymousFactCorrectionPersistsAndEmptyCatalogCardCaseRollsBack() throws Exception {
+        var browser = csrf(null);
+        long id = track(json.readTree(send(start(browser.cookie, browser, null)).body()).path("data").path("solutionId").asLong());
+        String body = UpdateSolutionFactsRequestTest.body(0, "transferredMoney", "NO", "sharedInformation", "UNKNOWN").toString();
+        var response = send(facts(id, browser, body));
+        assertEquals(200, response.statusCode(), response.body());
+        assertTrue(response.headers().firstValue("Cache-Control").orElse("").contains("no-store"));
+        JsonNode data = json.readTree(response.body()).path("data");
+        assertEquals(1, data.path("stateVersion").asInt());
+        assertEquals("installedApp", data.path("nextQuestion").path("factKey").asString(), "UNKNOWN으로 고친 항목은 다시 묻지 않아요.");
+        assertEquals(0, data.path("responseCards").size());
+        var restored = json.readTree(get("/api/solutions/sessions/" + id, browser.cookie).body()).path("data");
+        assertEquals(data.path("facts"), restored.path("facts"));
+        assertEquals(data.path("nextQuestion"), restored.path("nextQuestion"));
+        assertTrue(restored.path("messages").get(2).path("content").asString().startsWith("사실 수정: "));
+        // 운영 기본 카탈로그는 비어 있어서 카드가 필요한 정정은 503이고 아무것도 바뀌지 않아요.
+        var needsCard = send(facts(id, browser, UpdateSolutionFactsRequestTest.body(1, "installedApp", "YES").toString()));
+        assertEquals(503, needsCard.statusCode()); assertEquals("RESPONSE_CONTENT_UNAVAILABLE", json.readTree(needsCard.body()).path("code").asString());
+        var stale = send(facts(id, browser, body));
+        assertEquals(409, stale.statusCode()); assertEquals("STATE_VERSION_CONFLICT", json.readTree(stale.body()).path("code").asString());
+        assertEquals(404, send(facts(id, csrf(null), UpdateSolutionFactsRequestTest.body(1, "installedApp", "NO").toString())).statusCode());
+        var noToken = request("/api/solutions/sessions/" + id + "/facts", browser.cookie).header("Content-Type", "application/json")
+                .method("PATCH", HttpRequest.BodyPublishers.ofString(body)).build();
+        assertEquals(403, send(noToken).statusCode());
+        assertEquals(1, jdbc.queryForObject("SELECT state_version FROM solution_sessions WHERE id = ?", Integer.class, id));
+        assertEquals(5, jdbc.queryForObject("SELECT count(*) FROM solution_messages WHERE solution_id = ?", Integer.class, id));
+        // 고친 버전으로 SOL-03 선택이 이어져요.
+        var next = send(message(id, browser, SendSolutionMessageRequestTest.choice(UUID.randomUUID(), 1, "installedApp", "NO").toString()));
+        assertEquals(200, next.statusCode(), next.body());
+        assertEquals("contactContinues", json.readTree(next.body()).path("data").path("nextQuestion").path("factKey").asString());
+    }
+
+    private HttpRequest facts(long id, Csrf csrf, String body) {
+        return request("/api/solutions/sessions/" + id + "/facts", csrf.cookie).header(csrf.header, csrf.token)
+                .header("Content-Type", "application/json").method("PATCH", HttpRequest.BodyPublishers.ofString(body)).build();
+    }
+
+    private HttpRequest message(long id, Csrf csrf, String body) {
+        return request("/api/solutions/sessions/" + id + "/messages", csrf.cookie).header(csrf.header, csrf.token)
+                .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body)).build();
+    }
+
+    @Test
+    void anonymousCompletionIsRepeatableAndKeepsOtherSessionsUsable() throws Exception {
+        var browser = csrf(null);
+        long id = track(json.readTree(send(start(browser.cookie, browser, null)).body()).path("data").path("solutionId").asLong());
+        var before = jdbc.queryForMap("SELECT facts_json, card_codes_json, created_at FROM solution_sessions WHERE id = ?", id);
+        var response = send(completion(id, browser, null));
+        assertEquals(200, response.statusCode(), response.body());
+        JsonNode data = json.readTree(response.body()).path("data");
+        assertEquals(2, data.size()); assertEquals(id, data.path("solutionId").asLong());
+        assertEquals("COMPLETED", data.path("status").asString());
+        assertTrue(response.headers().firstValue("Cache-Control").orElse("").contains("no-store"));
+        var after = jdbc.queryForMap("SELECT completed_at, updated_at, state_version FROM solution_sessions WHERE id = ?", id);
+        assertEquals(200, send(completion(id, browser, "{}")).statusCode());
+        assertEquals(after, jdbc.queryForMap("SELECT completed_at, updated_at, state_version FROM solution_sessions WHERE id = ?", id));
+        assertEquals(before, jdbc.queryForMap("SELECT facts_json, card_codes_json, created_at FROM solution_sessions WHERE id = ?", id));
+        assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM solution_messages WHERE solution_id = ?", Integer.class, id));
+        var restored = get("/api/solutions/sessions/" + id, browser.cookie);
+        assertEquals(200, restored.statusCode()); assertTrue(json.readTree(restored.body()).path("data").path("nextQuestion").isNull());
+        var lateMessage = send(message(id, browser, SendSolutionMessageRequestTest.text(UUID.randomUUID(), 1, "설명").toString()));
+        assertEquals(409, lateMessage.statusCode()); assertEquals("SOLUTION_FINISHED", json.readTree(lateMessage.body()).path("code").asString());
+        var correction = request("/api/solutions/sessions/" + id + "/facts", browser.cookie).header(browser.header, browser.token)
+                .header("Content-Type", "application/json").method("PATCH", HttpRequest.BodyPublishers.ofString("{\"stateVersion\":1,\"changes\":{\"installedApp\":\"NO\"}}")).build();
+        assertEquals(409, send(correction).statusCode());
+        var next = send(start(browser.cookie, browser, null)); assertEquals(201, next.statusCode());
+        long nextId = track(json.readTree(next.body()).path("data").path("solutionId").asLong());
+        assertEquals(owner(id), owner(nextId));
+        var stranger = csrf(null); assertEquals(404, send(completion(id, stranger, null)).statusCode());
+        var noToken = request("/api/solutions/sessions/" + id + "/complete", browser.cookie).POST(HttpRequest.BodyPublishers.noBody()).build();
+        assertEquals(403, send(noToken).statusCode());
+        var keys = redis.keys(NAMESPACE + ":session:*"); if (keys != null && !keys.isEmpty()) redis.delete(keys);
+        var fresh = csrf(browser.cookie); assertEquals(404, send(completion(id, fresh, null)).statusCode());
+    }
+
+    @Test
+    void completionHandlesUnknownLengthBodyAndRejectsUnsupportedPayloads() throws Exception {
+        var browser = csrf(null);
+        long id = track(json.readTree(send(start(browser.cookie, browser, null)).body()).path("data").path("solutionId").asLong());
+        for (String body : List.of("null", "[]", "{\"stateVersion\":0}", "{}{}", " ", "{")) {
+            assertEquals(400, send(completion(id, browser, body)).statusCode());
+        }
+        var unknownLength = HttpRequest.BodyPublishers.fromPublisher(HttpRequest.BodyPublishers.ofString(" {} "));
+        assertEquals(-1, unknownLength.contentLength());
+        var request = request("/api/solutions/sessions/" + id + "/complete", browser.cookie).header(browser.header, browser.token)
+                .POST(unknownLength).build();
+        assertEquals(200, send(request).statusCode());
+    }
+
+    private HttpRequest completion(long id, Csrf csrf, String body) {
+        var builder = request("/api/solutions/sessions/" + id + "/complete", csrf.cookie).header(csrf.header, csrf.token);
+        return builder.POST(body == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(body)).build();
     }
 
     private record Csrf(String cookie, String header, String token) {}

@@ -141,8 +141,8 @@ class SolutionDatabaseTest {
         assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, null, null));
         assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, userId, UUID.randomUUID()));
         assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, Long.MAX_VALUE, null));
-        assertEquals(3, jdbc.queryForObject(
-                "SELECT max(version::int) FROM flyway_schema_history WHERE success", Integer.class));
+        assertEquals(1, jdbc.queryForObject(
+                "SELECT count(*) FROM flyway_schema_history WHERE version = '3' AND success", Integer.class));
     }
 
     @Test
