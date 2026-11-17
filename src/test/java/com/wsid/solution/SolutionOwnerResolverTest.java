@@ -8,6 +8,7 @@ import com.wsid.auth.domain.User;
 import com.wsid.auth.service.LoginService;
 import com.wsid.common.error.ApiException;
 import com.wsid.common.error.ErrorCode;
+import com.wsid.solution.domain.SolutionOwner;
 import com.wsid.solution.security.AnonymousOwnerIssuer;
 import com.wsid.solution.security.SolutionOwnerResolver;
 import java.time.Duration;
@@ -102,5 +103,43 @@ class SolutionOwnerResolverTest {
         assertThrows(ApiException.class, () -> resolver.resolve(
                 UsernamePasswordAuthenticationToken.unauthenticated(9L, null), request(new MockHttpSession())));
         verifyNoInteractions(values);
+    }
+
+    // ---------- SOL-02 조회 전용 ----------
+
+    @Test
+    void findExistingNeverCreatesSessionOrUuid() {
+        var noSession = new MockHttpServletRequest();
+        assertTrue(resolver.findExisting(null, noSession).isEmpty());
+        assertNull(noSession.getSession(false), "조회는 HTTP 세션을 만들지 않아요.");
+        assertTrue(resolver.findExisting(null, request(new MockHttpSession())).isEmpty());
+        var forged = new MockHttpSession();
+        forged.setAttribute("wsid.solution.anonymousOwnerId", "not-a-uuid");
+        assertTrue(resolver.findExisting(null, request(forged)).isEmpty());
+        assertEquals("not-a-uuid", forged.getAttribute("wsid.solution.anonymousOwnerId"));
+        verifyNoInteractions(values, logins);
+    }
+
+    @Test
+    void findExistingReusesIssuedAnonymousOwner() {
+        var session = new MockHttpSession();
+        var issued = resolver.resolve(null, request(session));
+        clearInvocations(values);
+        assertEquals(issued, resolver.findExisting(null, request(session)).orElseThrow());
+        verifyNoInteractions(values);
+    }
+
+    @Test
+    void findExistingUsesOnlyMemberAfterLoginAndRejectsInactiveMember() {
+        var session = new MockHttpSession();
+        resolver.resolve(null, request(session));
+        var user = mock(User.class);
+        when(user.getId()).thenReturn(42L);
+        when(logins.requireActiveUser(42L)).thenReturn(user);
+        var member = resolver.findExisting(UsernamePasswordAuthenticationToken.authenticated(42L, null, List.of()), request(session));
+        assertEquals(SolutionOwner.member(42), member.orElseThrow());
+        when(logins.requireActiveUser(9L)).thenThrow(new ApiException(ErrorCode.LOGIN_REQUIRED));
+        assertThrows(ApiException.class, () -> resolver.findExisting(
+                UsernamePasswordAuthenticationToken.authenticated(9L, null, List.of()), request(session)));
     }
 }

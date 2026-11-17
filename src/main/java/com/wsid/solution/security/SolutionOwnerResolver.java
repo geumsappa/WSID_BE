@@ -4,6 +4,7 @@ import com.wsid.auth.LoginCurrentUser;
 import com.wsid.auth.service.LoginService;
 import com.wsid.solution.domain.SolutionOwner;
 import jakarta.servlet.http.HttpServletRequest;
+import java.util.Optional;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Component;
@@ -32,5 +33,18 @@ public class SolutionOwnerResolver {
         }
         long userId = LoginCurrentUser.requireUserId(authentication);
         return SolutionOwner.member(loginService.requireActiveUser(userId).getId());
+    }
+
+    /**
+     * SOL-02 이후 조회용 소유자 확인. 새 HTTP 세션·익명 UUID를 만들지 않아요(getSession(false)).
+     * 로그인 회원은 세션에 익명 UUID가 남아 있어도 회원으로만 조회해요(로그인 전 익명 상담은 열리지 않음).
+     * 비활성·삭제 회원은 401이며 비회원으로 바꾸지 않아요.
+     */
+    public Optional<SolutionOwner> findExisting(Authentication authentication, HttpServletRequest request) {
+        if (authentication == null || authentication instanceof AnonymousAuthenticationToken) {
+            return anonymousOwners.existingOwner(request.getSession(false)).map(SolutionOwner::anonymous);
+        }
+        long userId = LoginCurrentUser.requireUserId(authentication);
+        return Optional.of(SolutionOwner.member(loginService.requireActiveUser(userId).getId()));
     }
 }

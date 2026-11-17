@@ -8,6 +8,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.HexFormat;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
@@ -51,6 +52,21 @@ public class AnonymousOwnerIssuer {
         if (winner == null) throw new ApiException(ErrorCode.AUTH_SERVICE_UNAVAILABLE);
         session.setAttribute(SESSION_ATTRIBUTE, winner);
         return UUID.fromString(winner);
+    }
+
+    /**
+     * SOL-02 이후 조회용. 세션 속성만 읽고 Redis·새 세션·새 UUID를 만들지 않아요.
+     * 값이 UUID 형식이 아니면 위조·손상으로 보고 비어 있는 결과를 돌려줘요(속성을 덮어쓰지 않음).
+     */
+    public Optional<UUID> existingOwner(HttpSession session) {
+        if (session == null || !(session.getAttribute(SESSION_ATTRIBUTE) instanceof String value)) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(UUID.fromString(value));
+        } catch (IllegalArgumentException e) {
+            return Optional.empty();
+        }
     }
 
     private static String sha256(String value) {

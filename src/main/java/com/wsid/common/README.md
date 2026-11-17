@@ -27,7 +27,7 @@
 
 목표 정책은 훈련·리포트·내 정보·세션 확인·로그아웃은 로그인 필수, 피해 대응 상담·GUIDE는 비회원 허용이에요. 상담에는 별도 소유권 확인이 필요해요. 세션 로그인은 아직 구현하지 않았고 local은 개발 계정을 사용해요.
 
-`SecurityConfig`의 `/api/training/**`, `/api/content/**` 규칙은 이전 경로와 개발 편의를 위한 설정이에요. CSRF는 로그인 회원의 로그아웃·훈련 변경 요청과, 회원·비회원 모두의 `/api/solutions/**` 변경 요청에 적용해요. CSRF 거부는 403 `CSRF_TOKEN_INVALID` JSON으로 응답해요. 상담은 `POST /api/solutions/sessions`만 공개했고, SOL-02~05는 소유권 검사와 함께 하나씩 공개해요.
+`SecurityConfig`의 `/api/training/**`, `/api/content/**` 규칙은 이전 경로와 개발 편의를 위한 설정이에요. CSRF는 로그인 회원의 로그아웃·훈련 변경 요청에 적용해요. `/api/solutions/**`는 이 파일이 아니라 `solution/security/SolutionSecurityConfig`의 별도 체인이 먼저 맡아요(회원·비회원 CSRF, 상담 공개 경로, 403 `CSRF_TOKEN_INVALID` JSON). 두 체인은 이 파일의 `HttpSessionSecurityContextRepository`·CORS 빈과 기본 세션 CSRF 저장소를 같이 써요.
 
 GUIDE-01의 `GET /api/guides/fraud-types`는 익명 접근을 추가했어요. 다른 guides 경로나 메서드를 한꺼번에 공개하지 않았어요. [GUIDE-01 구현 보고서](../../../../../../docs/guide-01-fraud-types.md)의 5·6장에 성공 봉투·보안 테스트·후속 확장 시 주의사항을 정리했어요.
 

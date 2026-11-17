@@ -10,11 +10,14 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.hibernate.annotations.ColumnTransformer;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -105,6 +108,71 @@ public class SolutionSession {
     }
 
     // TODO(SOL-03, SOL-04): 사실 갱신·사용자 확정값 보호·카드 재판정을 여기에 추가해요.
+
+    /** SOL-02: 저장된 사실. 4개 키·허용 값이 아니면 조용히 고치지 않고 예외를 던져요. */
+    public SolutionFacts readFacts() {
+        try {
+            JsonNode node = JSON.readTree(factsJson);
+            if (!node.isObject()) throw new IllegalArgumentException();
+            var values = new HashMap<String, String>();
+            for (String key : node.propertyNames()) {
+                JsonNode value = node.get(key);
+                if (!value.isString()) throw new IllegalArgumentException();
+                values.put(key, value.stringValue());
+            }
+            return SolutionFacts.fromStrings(values);
+        } catch (RuntimeException e) {
+            throw corrupted("facts_json");
+        }
+    }
+
+    /** SOL-02: 저장된 카드 참조. 저장 순서를 유지해요. */
+    public List<CardReference> readCardReferences() {
+        try {
+            JsonNode node = JSON.readTree(cardCodesJson);
+            if (!node.isArray()) throw new IllegalArgumentException();
+            var refs = new ArrayList<CardReference>();
+            for (JsonNode item : node) {
+                if (!item.isObject() || item.size() != 2 || !item.path("code").isString() || !item.path("version").isInt()) {
+                    throw new IllegalArgumentException();
+                }
+                refs.add(new CardReference(item.get("code").stringValue(), item.get("version").intValue()));
+            }
+            return List.copyOf(refs);
+        } catch (RuntimeException e) {
+            throw corrupted("card_codes_json");
+        }
+    }
+
+    /** SOL-02: 저장된 다음 질문. 없으면 null이에요. */
+    public SolutionQuestion readNextQuestion() {
+        if (nextQuestionJson == null) return null;
+        try {
+            JsonNode node = JSON.readTree(nextQuestionJson);
+            if (!node.isObject() || node.size() != 3 || !node.path("factKey").isString()
+                    || !node.path("content").isString() || !node.path("options").isArray()) {
+                throw new IllegalArgumentException();
+            }
+            String factKey = node.get("factKey").stringValue();
+            String content = node.get("content").stringValue();
+            var options = new ArrayList<String>();
+            for (JsonNode option : node.get("options")) {
+                if (!option.isString()) throw new IllegalArgumentException();
+                options.add(option.stringValue());
+            }
+            if (SolutionFact.fromKey(factKey).isEmpty() || content.isBlank() || !options.equals(SolutionQuestion.OPTIONS)) {
+                throw new IllegalArgumentException();
+            }
+            return new SolutionQuestion(factKey, content, options);
+        } catch (RuntimeException e) {
+            throw corrupted("next_question_json");
+        }
+    }
+
+    /** 저장값 자체는 메시지에 넣지 않고 상담 ID와 컬럼 이름만 남겨요. */
+    private IllegalStateException corrupted(String column) {
+        return new IllegalStateException("상담 저장값 형식이 올바르지 않아요: solutionId=" + id + ", column=" + column);
+    }
 
     public Long getId() {
         return id;

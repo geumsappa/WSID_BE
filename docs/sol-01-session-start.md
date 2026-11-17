@@ -4,7 +4,7 @@
 
 `POST /api/solutions/sessions`로 회원·비회원 모두 피해 대응 상담을 시작할 수 있어요. 설명이 있으면 AI-06으로 사실을 추출하고, 없거나 AI가 실패하면 직접 선택 질문으로 시작해요. 설명 원문은 DB·세션·로그에 남기지 않아요.
 
-> **LSH 담당 확인 필요.** 아래 1번 표의 ★ 항목은 계획서의 추천안대로 먼저 구현했어요. 합의 결과가 다르면 해당 파일만 바꾸면 돼요.
+> **2026-11-17 변경: LSH 파일 미수정 방식.** 처음에는 LSH의 `LoginController`·`SecurityConfig`를 고쳤지만, SOL-02 작업에서 두 파일을 LSH 원본(`1557fcb`)으로 되돌리고 SOL 전용 보안 설정(`solution/security/SolutionSecurityConfig`)과 비회원용 `GET /api/solutions/csrf`로 옮겼어요. 아래 내용은 바뀐 방식 기준이에요. 자세한 이유와 파일 관계는 [SOL-02 구현 보고서](sol-02-session-get.md) 2장을 봐요. ★ 항목은 여전히 팀 확인 대상이에요.
 
 ## 1. 결정 사항과 적용 상태
 
@@ -12,8 +12,8 @@
 |---|---|---|
 | 로그인 방식 | 기존 세션 로그인 그대로(JWT·refresh 없음) | 팀 결정 그대로 |
 | CSRF 방식(합의 1) | LSH의 CSRF 토큰 방식 유지. 토큰은 서버 세션 안에 있고 별도 만료·재발급 없음 | ★ 확인 필요 |
-| 비회원 CSRF 발급(합의 2) | `GET /api/auth/csrf`에서 로그인 확인 제거. `/api/auth/session`·`/api/users/me`·로그아웃은 로그인 필수 유지 | ★ 확인 필요 |
-| SOL CSRF 검사·경로(합의 3) | `/api/solutions/**`의 POST·PATCH 등은 회원·비회원 모두 검사. 공개 경로는 `POST /api/solutions/sessions`만, 옛 `/api/solution/**` 규칙 제거 | ★ 확인 필요 |
+| 비회원 CSRF 발급(합의 2) | LSH `GET /api/auth/csrf`는 그대로 회원 전용. 비회원은 상담 전용 `GET /api/solutions/csrf`로 받음(같은 세션 토큰 저장소라 회원 토큰도 상담에 통과) | ★ 팀에 알림(팀 가이드는 기존 API 확장이었음) |
+| SOL CSRF 검사·경로(합의 3) | `SolutionSecurityConfig`가 `/api/solutions/**`만 맡아 POST·PATCH 등을 회원·비회원 모두 검사. 공개 경로는 csrf·SOL-01·SOL-02만, 나머지는 차단. LSH `SecurityConfig`는 미수정(옛 `/api/solution/**` 규칙도 그대로) | ★ 팀에 알림 |
 | 대응 카드 카탈로그(합의 4) | `ResponseCardCatalog` 인터페이스만 만들고 운영 구현은 "카드 없음". LSH `GuideCatalog`는 가져오지 않음 | 합의 대기 |
 | 마이그레이션 번호(합의 5) | `V3__support_anonymous_solution_owners.sql` | ★ 확인 필요 |
 | 민감정보 정책 | 감지 시 400 거부(가리고 진행하지 않음). 탐지 기준은 초안 | FastAPI 쪽과 기준 맞춤 필요 |
@@ -21,11 +21,11 @@
 ## 2. 요청 흐름
 
 ```text
-1. 브라우저 → GET /api/auth/csrf (비회원도 허용)
+1. 브라우저 → GET /api/solutions/csrf (비회원 허용. 회원은 /api/auth/csrf도 가능)
    서버 → Redis 세션 + SESSION 쿠키 + {headerName: "X-CSRF-TOKEN", token}
 2. 브라우저 → POST /api/solutions/sessions (같은 쿠키 + X-CSRF-TOKEN 헤더 + 선택 설명)
 3. 서버
-   CSRF 확인(SecurityConfig) → 요청 형식 확인(StartSolutionRequest)
+   CSRF 확인(SolutionSecurityConfig) → 요청 형식 확인(StartSolutionRequest)
    → 민감정보 검사(SensitiveDescriptionGuard) → 소유자 결정(SolutionOwnerResolver)
    → 설명이 있으면 AI-06 호출(트랜잭션 밖) / 없거나 실패하면 UNKNOWN 4개
    → 카드 규칙(ResponseRules) + 다음 질문(SolutionQuestion)
@@ -142,17 +142,17 @@
 | `solution/service/SensitiveDescriptionGuard`·`StartSolutionService` | 민감정보 거부, 시작 흐름·트랜잭션 |
 | `solution/controller/SolutionController` | `POST /api/solutions/sessions` |
 | `common/error/ErrorCode` | `CSRF_TOKEN_INVALID`(403), `SENSITIVE_DATA_DETECTED`(400), `SOLUTION_NOT_FOUND`(404), `RESPONSE_CONTENT_UNAVAILABLE`(503) |
-| `common/config/SecurityConfig` ★ | SOL CSRF 검사, 공개 경로 정리, CSRF 거부 JSON 응답 |
-| `auth/controller/LoginController` ★ | 비회원 CSRF 발급 |
+| `solution/security/SolutionSecurityConfig` ★ | `/api/solutions/**` 전용 보안 체인: SOL CSRF 검사, 공개 경로, CSRF 거부 JSON 응답(처음엔 `common/config/SecurityConfig`를 고쳤다가 이 파일로 옮김) |
+| `solution/controller/SolutionController`의 `GET /csrf` ★ | 비회원 CSRF 발급(처음엔 `auth/controller/LoginController`를 고쳤다가 되돌림) |
 | `db/migration/V3__support_anonymous_solution_owners.sql` ★ | 비회원 소유자 컬럼·제약·인덱스 |
 
-CSRF 거부 응답이 빈 403에서 JSON 403(`CSRF_TOKEN_INVALID`)으로 바뀌었어요. 기존 로그아웃·훈련 요청에도 적용되지만 상태 코드는 그대로 403이라, LSH 통합 테스트는 수정 없이 통과해요.
+CSRF 거부 JSON 403(`CSRF_TOKEN_INVALID`)은 `/api/solutions/**`에만 적용돼요. LSH의 로그아웃·훈련 요청은 원래대로 빈 403이에요.
 
 ## 9. 테스트 결과
 
 | 실행 | 결과 | 새로 추가한 테스트 |
 |---|---|---|
-| `./gradlew test` | 784건 통과(기존 713 + 71) | `SolutionDomainTest`, `StartSolutionRequestTest`(요청·민감정보), `StartSolutionServiceTest`, `SolutionOwnerResolverTest`, `SolutionWebSecurityTest`(실제 SecurityConfig·CSRF 필터·MVC 바인딩) |
+| `./gradlew test` | 784건 통과(SOL-01 시점. SOL-02 반영 후 수치는 SOL-02 보고서)(기존 713 + 71) | `SolutionDomainTest`, `StartSolutionRequestTest`(요청·민감정보), `StartSolutionServiceTest`, `SolutionOwnerResolverTest`, `SolutionWebSecurityTest`(실제 SecurityConfig·CSRF 필터·MVC 바인딩) |
 | `./gradlew dbTest` | 11건 통과(기존 7 + 4) | `SolutionDatabaseTest`: V3 적용, 버전 0, JSONB 형식, 원문 미저장, 소유자 분리, CHECK·FK, 메시지 실패 롤백, AI 호출 시 트랜잭션 없음 |
 | `./gradlew integrationTest` | 16건 통과(기존 14 + 2) | `SolutionIntegrationTest`: 실제 서버·Redis 세션으로 비회원 GET csrf → POST 201, 토큰 누락·다른 세션 토큰 403, 같은 세션 같은 소유자·다른 세션 다른 소유자, 민감정보 400, 카드 없는 조합 503, 로그인 후 회원 소유·익명 상담 미이관 |
 | `./gradlew bootJar` | 성공 | |
@@ -172,7 +172,7 @@ AUTH_MAIL_ENABLED=false ./gradlew dbTest integrationTest --no-daemon
 
 ## 10. 남은 일
 
-1. **LSH 확인:** ★ 항목 4개(CSRF 방식 유지, 비회원 CSRF 발급, SOL CSRF 검사·경로, V3 번호). 다르게 정해지면 `LoginController`·`SecurityConfig`·마이그레이션 파일 이름만 바꿔요.
+1. **팀 확인:** ★ 항목(CSRF 방식 유지, 상담 전용 CSRF 발급·보안 설정을 SOL에 둔 것, V3 번호). 나중에 하나로 합치기로 하면 `SolutionSecurityConfig`의 규칙을 `SecurityConfig`로 옮기고 `/api/solutions/csrf`를 지우면 돼요.
 2. **카드 카탈로그(합의 4):** LSH `GuideCatalog`의 카드·기관을 가져와 `ResponseCardCatalog`를 구현하고 `version`을 추가해요. 그 뒤 `UnavailableResponseCardCatalog`를 지워요. 실제 카드는 콘텐츠 담당 검토 후 등록해요.
 3. **콘텐츠 검토:** 질문 문구 3개, 사실 조합별 카드 매트릭스.
 4. **민감정보 기준:** FastAPI 쪽 검사와 같은 기준으로 확정하고 오탐·미탐 사례를 테스트에 추가해요.
@@ -181,4 +181,4 @@ AUTH_MAIL_ENABLED=false ./gradlew dbTest integrationTest --no-daemon
    - 응답이 유실되어 다시 POST하면 상담이 하나 더 생겨요. 생성 멱등성이 필요하면 Idempotency-Key 계약을 따로 정해요.
    - AI 대기 시간은 공통 20초 제한을 써요.
    - FastAPI에는 AI-06이 아직 없어서, 실제 서버에서 `AI_MODE=http`이면 AI-06 호출이 실패하고 직접 선택으로 시작해요.
-7. **후속 API:** SOL-02~05는 `findOwned`와 `SOLUTION_NOT_FOUND`를 쓰고, 각 경로를 SecurityConfig에 공개할 때 소유권 검사를 함께 넣어요.
+7. **후속 API:** SOL-02~05는 `findOwned`와 `SOLUTION_NOT_FOUND`를 쓰고, 각 경로를 `SolutionSecurityConfig`에 공개할 때 소유권 검사를 함께 넣어요.

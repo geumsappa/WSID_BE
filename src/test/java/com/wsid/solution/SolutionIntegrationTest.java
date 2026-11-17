@@ -80,6 +80,36 @@ class SolutionIntegrationTest {
     }
 
     @Test
+    void authCsrfStaysMemberOnlyAndAnonymousRestoreFollowsSessionCookie() throws Exception {
+        var guestAuthCsrf = send(request("/api/auth/csrf", null).GET().build());
+        assertEquals(401, guestAuthCsrf.statusCode(), "LSH AUTH의 /api/auth/csrf는 그대로 회원 전용이에요.");
+
+        var browser = csrf(null);
+        var created = send(start(browser.cookie, browser, null));
+        long id = track(json.readTree(created.body()).path("data").path("solutionId").asLong());
+        var restored = get("/api/solutions/sessions/" + id, browser.cookie);
+        assertEquals(200, restored.statusCode(), restored.body());
+        JsonNode before = json.readTree(created.body()).path("data");
+        JsonNode after = json.readTree(restored.body()).path("data");
+        assertEquals(before.path("facts"), after.path("facts"));
+        assertEquals(before.path("nextQuestion"), after.path("nextQuestion"));
+        assertEquals(2, after.path("messages").size());
+        assertTrue(restored.headers().firstValue("Cache-Control").orElse("").contains("no-store"));
+
+        var stranger = csrf(null);
+        assertEquals(404, get("/api/solutions/sessions/" + id, stranger.cookie).statusCode());
+        var noCookie = get("/api/solutions/sessions/" + id, null);
+        assertEquals(404, noCookie.statusCode());
+        assertTrue(noCookie.headers().firstValue("Set-Cookie").isEmpty(), "쿠키 없는 조회는 새 세션을 만들지 않아요.");
+        assertEquals(404, get("/api/solutions/sessions/abc", browser.cookie).statusCode());
+
+        // 세션이 만료·삭제되면 같은 쿠키여도 복원할 수 없어요.
+        var sessionKeys = redis.keys(NAMESPACE + ":session:*");
+        if (sessionKeys != null && !sessionKeys.isEmpty()) redis.delete(sessionKeys);
+        assertEquals(404, get("/api/solutions/sessions/" + id, browser.cookie).statusCode());
+    }
+
+    @Test
     void anonymousCsrfThenStartKeepsOwnerPerSessionAndRejectsMissingToken() throws Exception {
         var first = csrf(null);
         assertNotNull(first.cookie);
@@ -137,7 +167,8 @@ class SolutionIntegrationTest {
         assertEquals(200, login.statusCode(), login.body());
         String memberCookie = login.headers().firstValue("Set-Cookie").map(v -> v.split(";", 2)[0]).orElse(anonymous.cookie);
 
-        var member = csrf(memberCookie);
+        // 회원은 기존 AUTH 발급 API(/api/auth/csrf) 토큰으로 상담을 시작해요(같은 세션 토큰 저장소).
+        var member = csrf("/api/auth/csrf", memberCookie);
         assertEquals(403, send(start(memberCookie, null, null)).statusCode());
         var started = send(start(memberCookie, member, null));
         assertEquals(201, started.statusCode(), started.body());
@@ -147,12 +178,21 @@ class SolutionIntegrationTest {
         assertNull(owner(memberSolution));
         assertEquals(anonymousOwner, owner(anonymousSolution));
         assertNull(jdbc.queryForObject("SELECT user_id FROM solution_sessions WHERE id = ?", Long.class, anonymousSolution));
+
+        // SOL-02 결정 3(방안 A): 로그인 뒤에는 회원 상담만 열리고 로그인 전 익명 상담은 404예요.
+        assertEquals(200, get("/api/solutions/sessions/" + memberSolution, memberCookie).statusCode());
+        assertEquals(404, get("/api/solutions/sessions/" + anonymousSolution, memberCookie).statusCode());
     }
 
     private record Csrf(String cookie, String header, String token) {}
 
+    /** 비회원은 상담 전용 발급 API를 써요. */
     private Csrf csrf(String cookie) throws Exception {
-        var response = send(request("/api/auth/csrf", cookie).GET().build());
+        return csrf("/api/solutions/csrf", cookie);
+    }
+
+    private Csrf csrf(String path, String cookie) throws Exception {
+        var response = send(request(path, cookie).GET().build());
         assertEquals(200, response.statusCode(), response.body());
         JsonNode data = json.readTree(response.body()).path("data");
         String next = response.headers().firstValue("Set-Cookie").map(v -> v.split(";", 2)[0]).orElse(cookie);
@@ -164,6 +204,10 @@ class SolutionIntegrationTest {
         if (csrf != null) builder.header(csrf.header, csrf.token);
         if (body == null) return builder.POST(HttpRequest.BodyPublishers.noBody()).build();
         return builder.header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body)).build();
+    }
+
+    private HttpResponse<String> get(String path, String cookie) throws Exception {
+        return send(request(path, cookie).GET().build());
     }
 
     private HttpResponse<String> postJson(String path, Object body, String cookie) throws Exception {

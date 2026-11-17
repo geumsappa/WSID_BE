@@ -25,12 +25,12 @@
 | API ID | 메서드 | 경로 | 인증 | 현재 구현 |
 |---|---|---|---|---|
 | SOL-01 | POST | `/api/solutions/sessions` | 불필요 (비회원 상담 소유권 확인 필요) | 구현([보고서](../../../../../../docs/sol-01-session-start.md)) |
-| SOL-02 | GET | `/api/solutions/sessions/{id}` | 불필요 (비회원 상담 소유권 확인 필요) | 엔티티·소유자 조건 repository만; 서비스·API 없음 |
+| SOL-02 | GET | `/api/solutions/sessions/{id}` | 불필요 (비회원 상담 소유권 확인 필요) | 구현([보고서](../../../../../../docs/sol-02-session-get.md)) |
 | SOL-03 | POST | `/api/solutions/sessions/{id}/messages` | 불필요 (비회원 상담 소유권 확인 필요) | 메시지 엔티티만; 서비스·API 없음 |
 | SOL-04 | PATCH | `/api/solutions/sessions/{id}/facts` | 불필요 (비회원 상담 소유권 확인 필요) | factsJson 컬럼만; 병합·재판정·API 없음 |
 | SOL-05 | POST | `/api/solutions/sessions/{id}/complete` | 불필요 (비회원 상담 소유권 확인 필요) | completedAt 컬럼만; 종료 메서드·API 없음 |
 
-소유자는 `SolutionOwnerResolver`가 정해요. 회원은 로그인 principal, 비회원은 HTTP 세션에 발급한 익명 UUID(`anonymous_owner_id`, V3)예요. 비회원은 `GET /api/auth/csrf`로 세션·토큰을 받은 뒤 같은 쿠키와 `X-CSRF-TOKEN`으로 요청해요. SOL-02~05는 `SolutionSessionRepository.findOwned`로만 조회하고, 상담 ID만 받아 타인 상담을 조회하게 만들지 않아요.
+소유자는 `SolutionOwnerResolver`가 정해요. 회원은 로그인 principal, 비회원은 HTTP 세션에 발급한 익명 UUID(`anonymous_owner_id`, V3)예요. 비회원은 `GET /api/solutions/csrf`로 세션·토큰을 받은 뒤 같은 쿠키와 `X-CSRF-TOKEN`으로 요청해요. 보안 규칙은 AUTH의 `SecurityConfig`가 아니라 `security/SolutionSecurityConfig`(`/api/solutions/**` 전용 체인)에 있어요. 조회는 `SolutionOwnerResolver.findExisting`(새 세션·UUID를 만들지 않음)과 `SolutionSessionRepository.findOwned`로만 하고, 상담 ID만 받아 타인 상담을 조회하게 만들지 않아요.
 
 ## 테이블
 

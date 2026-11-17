@@ -13,7 +13,12 @@ import com.wsid.solution.domain.SolutionOwner;
 import com.wsid.solution.dto.StartSolutionRequest;
 import com.wsid.solution.repository.SolutionMessageRepository;
 import com.wsid.solution.repository.SolutionSessionRepository;
+import com.wsid.solution.service.SolutionQueryService;
 import com.wsid.solution.service.StartSolutionService;
+import java.util.Optional;
+import jakarta.persistence.EntityManager;
+import org.springframework.data.jpa.repository.support.JpaRepositoryFactory;
+import java.util.concurrent.CompletableFuture;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -38,9 +43,11 @@ class SolutionDatabaseTest {
     private static final String SECRET = "모르는 사람에게 돈을 보냈고 연락이 끊겼어요. 비공개문장";
 
     @Autowired StartSolutionService service;
+    @Autowired SolutionQueryService queries;
     @Autowired SolutionSessionRepository sessions;
     @Autowired UserRepository users;
     @Autowired JdbcTemplate jdbc;
+    @Autowired EntityManager entityManager;
     @MockitoBean AiClient ai;
     @MockitoBean ResponseCardCatalog cards;
     @MockitoSpyBean SolutionMessageRepository messages;
@@ -146,5 +153,58 @@ class SolutionDatabaseTest {
                 () -> service.start(StartSolutionRequest.empty(), () -> SolutionOwner.anonymous(owner)));
         assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM solution_sessions WHERE anonymous_owner_id = ?",
                 Integer.class, owner));
+    }
+
+    // ---------- SOL-02 ----------
+
+    @Test
+    void restoreReadsOwnedRowsAndChangesNothing() {
+        long userId = user();
+        var anonymous = UUID.randomUUID();
+        var created = service.start(described(), () -> SolutionOwner.member(userId));
+        long anon = service.start(StartSolutionRequest.empty(), () -> SolutionOwner.anonymous(anonymous)).solutionId();
+        solutionIds.addAll(List.of(created.solutionId(), anon));
+        String before = jdbc.queryForObject("SELECT row(s.*)::text FROM solution_sessions s WHERE id = ?", String.class, created.solutionId());
+
+        var restored = queries.get(created.solutionId(), () -> Optional.of(SolutionOwner.member(userId)));
+        assertEquals(created.facts(), restored.facts());
+        assertEquals(created.responseCards(), restored.responseCards());
+        assertEquals(created.nextQuestion(), restored.nextQuestion());
+        assertEquals(0, restored.stateVersion());
+        assertEquals(List.of(1, 2), restored.messages().stream().map(m -> m.sequenceNo()).toList());
+        assertEquals(before, jdbc.queryForObject("SELECT row(s.*)::text FROM solution_sessions s WHERE id = ?", String.class, created.solutionId()));
+
+        assertEquals(anon, queries.get(anon, () -> Optional.of(SolutionOwner.anonymous(anonymous))).solutionId());
+        assertThrows(com.wsid.common.error.ApiException.class,
+                () -> queries.get(anon, () -> Optional.of(SolutionOwner.anonymous(UUID.randomUUID()))));
+        assertThrows(com.wsid.common.error.ApiException.class,
+                () -> queries.get(anon, () -> Optional.of(SolutionOwner.member(userId))));
+        assertThrows(com.wsid.common.error.ApiException.class,
+                () -> queries.get(created.solutionId(), () -> Optional.of(SolutionOwner.anonymous(anonymous))));
+    }
+
+    /** 상담 행을 읽은 뒤 다른 트랜잭션이 메시지를 추가·버전을 올려도, 응답은 같은 시점의 버전·메시지예요(REPEATABLE_READ). */
+    @Test
+    void restoreUsesOneSnapshotEvenIfAnotherWriteCommitsMidway() {
+        var owner = UUID.randomUUID();
+        long id = service.start(StartSolutionRequest.empty(), () -> SolutionOwner.anonymous(owner)).solutionId();
+        solutionIds.add(id);
+        doAnswer(invocation -> {
+            CompletableFuture.runAsync(() -> {
+                jdbc.update("INSERT INTO solution_messages (solution_id, sender, input_kind, sequence_no) VALUES (?, 'USER', 'OPTION', 3)", id);
+                jdbc.update("UPDATE solution_sessions SET state_version = state_version + 1 WHERE id = ?", id);
+            }).join();
+            // 스파이는 JPA 프록시를 감싸 실제 메서드를 호출할 수 없어서, 같은 트랜잭션의 공유 EntityManager로 만든 저장소에 맡겨요.
+            return new JpaRepositoryFactory(entityManager).getRepository(SolutionMessageRepository.class)
+                    .findBySolutionIdOrderBySequenceNoAsc(id);
+        }).when(messages).findBySolutionIdOrderBySequenceNoAsc(id);
+
+        var restored = queries.get(id, () -> Optional.of(SolutionOwner.anonymous(owner)));
+        assertEquals(0, restored.stateVersion());
+        assertEquals(2, restored.messages().size(), "중간에 커밋된 메시지는 같은 응답에 섞이지 않아요.");
+        reset(messages);
+        var latest = queries.get(id, () -> Optional.of(SolutionOwner.anonymous(owner)));
+        assertEquals(1, latest.stateVersion());
+        assertEquals(3, latest.messages().size());
     }
 }
