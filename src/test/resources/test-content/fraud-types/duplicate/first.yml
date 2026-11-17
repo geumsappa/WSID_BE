@@ -1,7 +1,0 @@
-code: DUPLICATE
-name: "첫 합성 유형"
-description: "중복 검사"
-display_order: 0
-reviewed: true
-source: "https://example.invalid/first"
-checked_at: "2026-11-16"

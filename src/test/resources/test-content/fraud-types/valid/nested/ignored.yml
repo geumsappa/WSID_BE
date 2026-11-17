@@ -1,8 +1,0 @@
-# 재귀 스캔한다면 SECONDHAND_TRADE가 중복되어 실패해야 하는 테스트 자료.
-code: SECONDHAND_TRADE
-name: "하위 폴더 합성 유형"
-description: "지정 폴더의 비재귀 스캔에서 제외되어야 함"
-display_order: 0
-reviewed: true
-source: "https://example.invalid/nested"
-checked_at: "2026-11-16"

@@ -29,4 +29,13 @@ class FlowStateTest {
         assertFalse(FlowState.fromJson("{}").keySceneShown());
         assertFalse(FlowState.fromJson(null).keySceneShown());
     }
+    @Test
+    void discoveryAndFinishStateSurviveEachOtherUpdates() {
+        var state = new FlowState(true, DiscoveryStatus.READY, true);
+        assertEquals(state, FlowState.fromJson(state.toJson()));
+        assertTrue(state.withDiscoveryStatus(DiscoveryStatus.DEFAULT_SCENARIO).finishSuggested());
+        assertEquals(DiscoveryStatus.READY, state.withSimulation(false, false).discoveryStatus());
+        assertEquals(DiscoveryStatus.READY, state.withKeySceneShown().discoveryStatus());
+        assertTrue(FlowState.fromJson("{\"finishSuggested\":true}").finishSuggested());
+    }
 }

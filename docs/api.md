@@ -23,7 +23,7 @@ URL의 `sessions`는 리소스 이름이에요. 로그인 세션 기능을 켜�
 
 훈련 메시지와 진행 상태는 DB에 저장하고, 확인된 사실·시나리오·필요한 최근 대화를 LLM 요청에 넣어요. 이번 요청에서 이미 가진 정보를 저장 후 다시 조회할 필요는 없어요. 다음 요청에서는 저장한 맥락을 복원해 새 답변과 합쳐요. AI 호출 중에는 DB 트랜잭션을 유지하지 않아요.
 
-현재 코드는 여러 번의 상황 답변에서 사실을 누적한 뒤 READY·DEFAULT_SCENARIO에서 고정 유형으로 자동 시작하는 임시 흐름이에요. AI-03 호출 클라이언트는 구현했지만 개인화 생성·저장과 단계별 목표 API는 아직 연결되지 않았어요. 리포트는 잘한 행동·놓친 위험 신호·권장 대응을 다루고, 턴별 피드백을 제공하는 요구사항은 제외했어요.
+현재 코드는 첫 상황 답변 뒤 고정 시나리오로 바로 넘어가는 임시 흐름이에요. 실제 후속 질문·개인화와 단계별 목표 API는 아직 연결되지 않았어요. 리포트는 잘한 행동·놓친 위험 신호·권장 대응을 다루고, 턴별 피드백을 제공하는 요구사항은 제외했어요.
 
 ## 내부 AI
 
@@ -65,20 +65,24 @@ AUTH-07은 `data`에 `id`, `email`, `gender`, `status`, `createdAt`을 반환해
 
 | API ID | 메서드 | 경로 | 인증 | 현재 구현 |
 |---|---|---|---|---|
-| GUIDE-01 | GET | `/api/guides/fraud-types` | 불필요 | YAML 로더·승인 필터/정렬·메모리 카탈로그·성공 봉투·익명 GET 구현. 기본 데이터는 미검토 초안이므로 현재 data는 빈 배열. [구현 보고서](guide-01-fraud-types.md) |
-| GUIDE-02 | GET | `/api/guides/fraud-types/{code}` | 불필요 | content 문서 계획; 로더·API 없음 |
-| GUIDE-03 | GET | `/api/guides/response-cards` | 불필요 | 카드 형식 README만; 적용 조건의 요청·응답 정의 필요 |
-| GUIDE-04 | GET | `/api/guides/institutions` | 불필요 | content 문서 계획; API 없음 |
+| GUIDE-01 | GET | `/api/guides/fraud-types` | 불필요 | 유형 목록 |
+| GUIDE-02 | GET | `/api/guides/fraud-types/{code}` | 불필요 | 유형 상세, 미공개·미등록 코드는 404 `GUIDE_NOT_FOUND` |
+| GUIDE-03 | GET | `/api/guides/response-cards` | 불필요 | `codes` 쉼표 구분 필터. 생략하면 전체 공개 카드 |
+| GUIDE-04 | GET | `/api/guides/institutions` | 불필요 | 기관 목록 |
+
+가이드는 `content/guides.yml`에서 팀 검토 완료 항목을 읽어요. 승인된 데이터가 등록되기 전에는 빈 목록을 반환해요.
 
 ## 리포트
 
 | API ID | 메서드 | 경로 | 인증 | 현재 구현 |
 |---|---|---|---|---|
-| RPT-01 | GET | `/api/trainings/{id}/report` | 필요 | 엔티티·repository만; 목표 경로의 서비스·API 미구현 |
-| RPT-02 | POST | `/api/reports/{id}/save` | 필요 | saveToMyReports 엔티티 메서드만; 원문 삭제·API 없음 |
-| RPT-03 | GET | `/api/reports` | 필요 | repository TODO; API 없음 |
-| RPT-04 | GET | `/api/reports/{id}` | 필요 | 문서 계획; 소유권 조회 서비스·API 없음 |
-| RPT-05 | GET | `/api/reports/{id}/pdf` | 필요 | 문서 계획; PDF 생성·API 없음 |
+| RPT-01 | GET | `/api/trainings/{id}/report` | 필요 | 본인 훈련의 리포트 조회. 저장 전에도 가능 |
+| RPT-02 | POST | `/api/reports/{id}/save` | 필요 | CSRF 헤더 필요. 저장과 원문 삭제를 한 트랜잭션으로 처리 |
+| RPT-03 | GET | `/api/reports` | 필요 | 본인이 저장한 리포트를 완료 최신순으로 조회. `size` 1~100, 기본 10 |
+| RPT-04 | GET | `/api/reports/{id}` | 필요 | 본인이 저장한 리포트 상세 조회 |
+| RPT-05 | GET | `/api/reports/{id}/pdf` | 필요 | 본인 리포트의 PDF 바이너리 다운로드 |
+
+TRN-11이 완료되면 리포트를 만들어요. 기본 모드는 규칙 기반 평가를 생성하고, HTTP 모드는 AI-05를 호출해요. RPT-03의 노션 오류 예시 `TOKEN_EXPIRED`는 서버 세션 정책에 맞춰 `401 LOGIN_REQUIRED`로 보완할 필요가 있어요. 다음 페이지는 `nextCursor` 값을 그대로 보내요.
 
 ## 피해 대응
 
@@ -94,14 +98,28 @@ AUTH-07은 `data`에 `id`, `email`, `gender`, `status`, `createdAt`을 반환해
 
 | API ID | 메서드 | 경로 | 인증 | 현재 구현 |
 |---|---|---|---|---|
-| TRN-01 | POST | `/api/trainings` | 필요 | 새 경로 구현; local 개발 계정 기준 DISCOVERY 생성 |
-| TRN-02 | GET | `/api/trainings/active` | 필요 | 새 경로 구현; 소유자 조건 활성 훈련 조회 |
-| TRN-03 | GET | `/api/trainings/{id}` | 필요 | 새 경로 구현; 대화·상황 파악 상태·질문 수 복원, 선택지 미구현 |
-| TRN-04 | POST | `/api/trainings/{id}/discovery/messages` | 필요 | 여러 답변의 사실 누적·상태 판정·대체 질문 구현; 실제 회원 인증은 미구현 |
-| TRN-05 | POST | `/api/trainings/{id}/discovery/images` | 필요 | 미구현; 파일 제한 검증·임시 보관·삭제 구현 필요 |
-| TRN-06 | POST | `/api/trainings/{id}/scenario` | 필요 | 별도 API 없음; 기본 유형 고정 |
-| TRN-07 | POST | `/api/trainings/{id}/start` | 필요 | 별도 API 없음; finishDiscovery가 beginSimulation 직접 호출 |
-| TRN-08 | POST | `/api/trainings/{id}/messages` | 필요 | 새 경로·단계 검사 구현; 기존 AI-04 HTTP 경로·맥락 TODO 유지 |
-| TRN-09 | GET | `/api/trainings/{id}/mock-page` | 필요 | 템플릿 코드 컬럼만; 응답 DTO·조회 없음 |
-| TRN-10 | POST | `/api/trainings/{id}/actions` | 필요 | InputKind.ACTION·JSON 컬럼만; API·동작 없음 |
-| TRN-11 | POST | `/api/trainings/{id}/finish` | 필요 | 자동 종료만 있음; 직접 종료·리포트 생성·API 없음 |
+| TRN-01 | POST | `/api/trainings` | 필요 | 구현. CSRF 헤더와 JSON `{}`를 보내면 새 훈련과 첫 질문을 반환 |
+| TRN-02 | GET | `/api/trainings/active` | 필요 | 구현. 만료되지 않은 최근 훈련을 반환하며 없으면 `200`과 `data: null` |
+| TRN-03 | GET | `/api/trainings/{id}` | 필요 | undefined |
+| TRN-04 | POST | `/api/trainings/{id}/discovery/messages` | 필요 | 구현. 상황 파악 답변과 다음 질문 저장, 민감정보 및 중복 요청 차단 |
+| TRN-05 | POST | `/api/trainings/{id}/discovery/images` | 필요 | 구현. PNG/JPEG 최대 3장, 장당 5MB. 실제 OCR은 AI-02 필요 |
+| TRN-06 | POST | `/api/trainings/{id}/scenario` | 필요 | 구현. 상황 파악 완료 후 시나리오 생성과 SCENARIO_READY 전환 |
+| TRN-07 | POST | `/api/trainings/{id}/start` | 필요 | 구현. 준비된 시나리오로 가상 훈련 시작 |
+| TRN-08 | POST | `/api/trainings/{id}/messages` | 필요 | 구현. 텍스트·선택지 요청 처리, 다음 대사·판정·종료 제안 반환 |
+| TRN-09 | GET | `/api/trainings/{id}/mock-page` | 필요 | 구현. 가상 금융 모의 페이지 조회 |
+| TRN-10 | POST | `/api/trainings/{id}/actions` | 필요 | 구현. 가상 화면 행동과 허용된 메타데이터만 저장 |
+| TRN-11 | POST | `/api/trainings/{id}/finish` | 필요 | 구현. 훈련 종료와 리포트 저장을 함께 처리. 반복 종료 시 같은 리포트 반환 |
+
+훈련 변경 요청에는 로그인 세션의 CSRF 헤더가 필요해요. `stateVersion` 충돌은 409 `STATE_VERSION_CONFLICT`, 이미 저장된 메시지·행동 요청 ID는 409 `DUPLICATE_REQUEST`를 반환해요.
+
+기본 `AI_MODE=fake`에서는 상황 답변 3회 뒤 검토된 중고거래 예시로 진행하고, OCR은 직접 입력을 안내해요. `AI_MODE=http`에서는 노션의 AI-01~05 경로와 `success/data` 형식으로 FastAPI를 호출해요. AI 평가가 실패하면 훈련을 완료 처리하지 않아 다시 종료 요청을 보낼 수 있어요.
+
+팀 확인 항목은 내부 AI의 세부 필드(사기 유형 코드, 시나리오 첫 대사), 금융 외 모의 페이지 코드, 프론트 상태 복구에 쓰는 TRN-03 추가 필드(`scenario`, `messages[].phase`, `canGenerateScenario`, `shouldFinish`)예요.
+
+## LSH·OHC 통합
+
+GUIDE-01~04는 LSH의 `GuideCatalog`와 `content/guides.yml`을 사용해요. OHC의 기존 유형 YAML 초안은 참고 자료로 남지만 공개 목록 로더에는 연결하지 않아요.
+
+훈련 공개 API `/api/trainings/**`는 LSH 계약을 사용해요. OHC의 상황 파악·사실 누적 기능은 기존 `/api/training/sessions` 경로의 `/turns`, `/discovery/messages`, `/messages`에서 유지해요. 두 경로의 요청·응답 계약은 서로 달라요.
+
+상담은 OHC의 전용 보안 체인과 `/api/solutions/csrf`를 유지해요. 회원은 `/api/auth/csrf`에서 받은 토큰도 같은 세션 쿠키와 함께 사용할 수 있어요.

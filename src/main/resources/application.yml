@@ -1,4 +1,8 @@
 spring:
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 16MB
   application:
     name: wsid-backend
   profiles:
@@ -66,8 +70,6 @@ wsid:
     max-attempts-per-window: ${AUTH_MAX_ATTEMPTS_PER_WINDOW:20}
     mail-enabled: ${AUTH_MAIL_ENABLED:false}
     mail-from: ${MAIL_FROM:}
-  content:
-    fraud-types-location: "classpath*:/content/fraud-types/"
   ai:
     mode: ${AI_MODE:fake}      # fake: 가짜 응답으로 개발 / http: AI 서비스(FastAPI) 호출
     base-url: ${AI_BASE_URL:http://localhost:8000}

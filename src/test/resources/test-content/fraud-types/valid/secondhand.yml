@@ -1,7 +1,0 @@
-code: SECONDHAND_TRADE
-name: "중고거래 관련 사기"
-description: "테스트용 중고거래 유형 설명"
-display_order: 20
-reviewed: true
-source: "https://example.invalid/secondhand"
-checked_at: "2026-11-16"

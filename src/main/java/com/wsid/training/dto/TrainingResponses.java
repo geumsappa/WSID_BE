@@ -1,0 +1,43 @@
+package com.wsid.training.dto;
+
+import com.wsid.common.domain.MessageSender;
+import com.wsid.training.domain.TrainingPhase;
+import com.wsid.training.domain.TrainingStatus;
+import java.time.Instant;
+import java.util.List;
+import tools.jackson.databind.JsonNode;
+
+public final class TrainingResponses {
+    private TrainingResponses() {}
+
+    public static String phase(TrainingPhase phase) {
+        return phase == TrainingPhase.REPORT ? "RESULT" : phase.name();
+    }
+
+    public record FirstMessage(MessageSender sender, String content) {}
+    public record Created(long trainingId, String phase, TrainingStatus status, int stateVersion,
+            FirstMessage firstMessage) {}
+    public record Active(long trainingId, String phase, TrainingStatus status, Instant lastActivityAt) {}
+    public record HistoryMessage(long id, MessageSender sender, String inputKind, String content, String phase) {}
+    public record Detail(long trainingId, String phase, TrainingStatus status, int stateVersion, int turnCount,
+            List<HistoryMessage> messages, JsonNode availableOptions, MockPage mockPage, ScenarioSummary scenario,
+            boolean canGenerateScenario, boolean shouldFinish) {}
+    public record Option(String code, String label) {}
+    public record Reply(MessageSender sender, String content, List<Option> options) {}
+    public record Discovery(FirstMessage reply, int discoveryTurnCount, boolean canGenerateScenario, int stateVersion) {}
+    public record Ocr(String recognizedText, boolean usable) {}
+    public record ScenarioSummary(String title, String description) {}
+    public record Scenario(long trainingId, String phase, String fraudTypeCode, ScenarioSummary scenario,
+            String mockPageTemplateCode, int stateVersion) {}
+    public record Started(String phase, FirstMessage firstMessage, int stateVersion) {}
+    public record Message(Reply reply, List<String> recognizedActions, int turnCount, boolean shouldFinish,
+            MockPage mockPage, int stateVersion) {}
+    public record MockPage(String templateCode, String title, String institutionName, String screenCode,
+            boolean isSimulation) {
+        public static MockPage bankNotice() {
+            return new MockPage("BANK_NOTICE", "가상 금융 안내", "가상금융센터", "LOGIN_CHECK", true);
+        }
+    }
+    public record Action(boolean recorded, int stateVersion) {}
+    public record Finished(long trainingId, TrainingStatus status, String phase, long reportId) {}
+}

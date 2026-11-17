@@ -97,6 +97,33 @@ public class TrainingMessage {
         return base(trainingId, phase, MessageSender.AI, sequenceNo, content, now);
     }
 
+    public static TrainingMessage selected(long trainingId, int sequence, String label,
+            String code, UUID requestId, Instant now) {
+        var message = fromUser(trainingId, TrainingPhase.SIMULATION, sequence, label, null, requestId, now);
+        message.inputKind = InputKind.OPTION;
+        message.actionCode = code;
+        return message;
+    }
+
+    public static TrainingMessage action(long trainingId, int sequence, String code,
+            String metadata, UUID requestId, Instant now) {
+        var message = fromUser(trainingId, TrainingPhase.SIMULATION, sequence, null, null, requestId, now);
+        message.inputKind = InputKind.ACTION;
+        message.actionCode = code;
+        message.actionMetaJson = metadata;
+        return message;
+    }
+
+    public void recordEvaluation(String evaluation) {
+        turnEvaluationJson = evaluation;
+    }
+
+    public void recordOptions(String options) {
+        optionsJson = options;
+    }
+
+    public String getTurnEvaluationJson() { return turnEvaluationJson; }
+
     /** 종료 안내 같은 시스템 메시지 */
     public static TrainingMessage fromSystem(long trainingId, TrainingPhase phase, int sequenceNo, String content, Instant now) {
         return base(trainingId, phase, MessageSender.SYSTEM, sequenceNo, content, now);
@@ -141,6 +168,10 @@ public class TrainingMessage {
 
     public String getActionCode() {
         return actionCode;
+    }
+
+    public String getOptionsJson() {
+        return optionsJson;
     }
 
     public int getSequenceNo() {

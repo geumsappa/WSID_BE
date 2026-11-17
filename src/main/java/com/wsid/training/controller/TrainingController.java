@@ -17,7 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /** 요청 검증과 응답 변환만 해요. 규칙 판단은 하지 않아요. */
 @RestController
-@RequestMapping("/api/trainings")
+@RequestMapping("/api/training/sessions")
 public class TrainingController {
 
     private final TrainingService trainingService;
@@ -55,6 +55,11 @@ public class TrainingController {
     @PostMapping("/{sessionId}/messages")
     public TurnResponse submitSimulationMessage(@PathVariable long sessionId, @Valid @RequestBody SubmitTurnRequest request) {
         return trainingService.submitSimulationMessage(sessionId, request);
+    }
+
+    @PostMapping("/{sessionId}/turns")
+    public TurnResponse submitTurn(@PathVariable long sessionId, @Valid @RequestBody SubmitTurnRequest request) {
+        return trainingService.submitTurn(sessionId, request);
     }
 
 }
