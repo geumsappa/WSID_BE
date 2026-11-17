@@ -1,4 +1,8 @@
 spring:
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 16MB
   application:
     name: wsid-backend
   profiles:
@@ -6,6 +10,34 @@ spring:
   threads:
     virtual:
       enabled: true            # AI 응답을 기다리는 동안 OS 스레드를 묶지 않아요
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      connect-timeout: 2s
+      timeout: 2s
+      repositories:
+        enabled: false
+  session:
+    timeout: ${SESSION_TIMEOUT:30m}
+    data:
+      redis:
+        namespace: ${SESSION_NAMESPACE:wsid:session}
+  mail:
+    # SMTP 미설정 시에도 서버는 시작해요. 발송은 AUTH_MAIL_ENABLED로 별도 활성화해요.
+    host: ${MAIL_HOST:localhost}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    test-connection: false
+    properties:
+      "[mail.smtp.auth]": ${MAIL_SMTP_AUTH:true}
+      "[mail.smtp.starttls.enable]": ${MAIL_STARTTLS_ENABLED:true}
+      "[mail.smtp.starttls.required]": ${MAIL_STARTTLS_REQUIRED:true}
+      "[mail.smtp.connectiontimeout]": 5000
+      "[mail.smtp.timeout]": 5000
+      "[mail.smtp.writetimeout]": 5000
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/wsid}
     username: ${DB_USERNAME:wsid}
@@ -15,7 +47,29 @@ spring:
     hibernate:
       ddl-auto: validate       # 테이블은 Flyway가 만들고, 엔티티와 맞는지만 서버 시작 때 검사해요
 
+server:
+  servlet:
+    session:
+      cookie:
+        name: SESSION
+        http-only: true
+        secure: true
+        same-site: lax
+        path: /
+
 wsid:
+  cors:
+    allowed-origins: ${WSID_CORS_ALLOWED_ORIGINS:}
+  auth:
+    redis-namespace: ${AUTH_REDIS_NAMESPACE:wsid:auth:verification}
+    code-ttl: ${AUTH_CODE_TTL:5m}
+    resend-interval: ${AUTH_RESEND_INTERVAL:60s}
+    rate-window: ${AUTH_RATE_WINDOW:1h}
+    max-sends: ${AUTH_MAX_SENDS:5}
+    max-attempts-per-code: ${AUTH_MAX_ATTEMPTS_PER_CODE:5}
+    max-attempts-per-window: ${AUTH_MAX_ATTEMPTS_PER_WINDOW:20}
+    mail-enabled: ${AUTH_MAIL_ENABLED:false}
+    mail-from: ${MAIL_FROM:}
   ai:
     mode: ${AI_MODE:fake}      # fake: 가짜 응답으로 개발 / http: AI 서비스(FastAPI) 호출
     base-url: ${AI_BASE_URL:http://localhost:8000}

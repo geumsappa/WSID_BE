@@ -6,8 +6,10 @@ import com.wsid.ai.dto.TrainingTurnRequest;
 import com.wsid.ai.dto.TrainingTurnSuggestion;
 import com.wsid.auth.CurrentUser;
 import com.wsid.common.domain.MessageSender;
+import com.wsid.common.domain.InputKind;
 import com.wsid.common.error.ApiException;
 import com.wsid.common.error.ErrorCode;
+import com.wsid.report.service.ReportService;
 import com.wsid.training.domain.TextSource;
 import com.wsid.training.domain.TrainingMessage;
 import com.wsid.training.domain.TrainingPhase;
@@ -20,6 +22,7 @@ import com.wsid.training.domain.UserAction;
 import com.wsid.training.dto.MessageDto;
 import com.wsid.training.dto.SessionStateResponse;
 import com.wsid.training.dto.SubmitTurnRequest;
+import com.wsid.training.dto.TrainingResponses;
 import com.wsid.training.dto.TurnResponse;
 import com.wsid.training.repository.TrainingMessageRepository;
 import com.wsid.training.repository.TrainingSessionRepository;
@@ -29,7 +32,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 훈련 흐름을 조율해요. 규칙 판단은 TrainingSession(domain)에 맡기고,
@@ -49,6 +55,8 @@ public class TrainingService {
     private final CurrentUser currentUser;
     private final TransactionTemplate transaction;
     private final TrainingRules rules;
+    private final ReportService reports;
+    private final ObjectMapper json;
 
     public TrainingService(
             TrainingSessionRepository sessions,
@@ -56,13 +64,17 @@ public class TrainingService {
             AiClient aiClient,
             CurrentUser currentUser,
             PlatformTransactionManager transactionManager,
-            TrainingProperties properties) {
+            TrainingProperties properties,
+            ReportService reports,
+            ObjectMapper json) {
         this.sessions = sessions;
         this.messages = messages;
         this.aiClient = aiClient;
         this.currentUser = currentUser;
         this.transaction = new TransactionTemplate(transactionManager);
         this.rules = properties.toRules();
+        this.reports = reports;
+        this.json = json;
     }
 
     /** SIM-001: 새 훈련을 만들어 소유자를 연결하고, 준비된 첫 질문을 돌려줘요. */
@@ -80,10 +92,48 @@ public class TrainingService {
 
     /** 홈의 '이어서 하기': 진행 중인 훈련이 있으면 돌려줘요. */
     public Optional<SessionStateResponse> findActive() {
-        long userId = currentUser.id();
-        return sessions.findFirstByUserIdAndStatusOrderByLastActivityAtDesc(userId, TrainingStatus.ACTIVE)
-                .filter(session -> !session.isExpired(Instant.now()))
-                .map(this::toState);
+        return activeSession().map(this::toState);
+    }
+
+    public TrainingResponses.Created create() {
+        TurnResponse started = start();
+        return new TrainingResponses.Created(started.sessionId(), TrainingResponses.phase(started.phase()),
+                TrainingStatus.ACTIVE, started.stateVersion(),
+                new TrainingResponses.FirstMessage(started.message().sender(), started.message().text()));
+    }
+
+    public Optional<TrainingResponses.Active> active() {
+        return activeSession().map(session -> new TrainingResponses.Active(session.getId(),
+                TrainingResponses.phase(session.getPhase()), session.getStatus(), session.getLastActivityAt()));
+    }
+
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public TrainingResponses.Detail detail(long id) {
+        TrainingSession session = sessions.findByIdAndUserId(id, currentUser.id())
+                .orElseThrow(() -> new ApiException(ErrorCode.TRAINING_NOT_FOUND));
+        var history = messages.findByTrainingIdOrderBySequenceNoAsc(id).stream()
+                .filter(m -> m.getInputKind() != InputKind.ACTION).toList();
+        var restored = history.stream().map(m -> new TrainingResponses.HistoryMessage(
+                m.getId(), m.getSender(), m.getInputKind() == InputKind.OPTION ? "CHOICE" : m.getInputKind().name(),
+                m.getContent(), TrainingResponses.phase(m.getPhase()))).toList();
+        var last = history.isEmpty() ? null : history.getLast();
+        var options = session.getStatus() == TrainingStatus.ACTIVE && last != null
+                && last.getSender() == MessageSender.AI && last.getOptionsJson() != null
+                ? json.readTree(last.getOptionsJson()) : json.createArrayNode();
+        var scenario = session.getScenarioJson() == null ? null
+                : TrainingWorkflow.summary(json.readTree(session.getScenarioJson()));
+        var page = session.getPhase() == TrainingPhase.SIMULATION && session.isKeySceneShown()
+                ? TrainingWorkflow.availablePage(session) : null;
+        boolean ready = session.getPhase() == TrainingPhase.DISCOVERY && session.getContextFacts() != null
+                && json.readTree(session.getContextFacts()).path("canGenerateScenario").asBoolean();
+        return new TrainingResponses.Detail(id, TrainingResponses.phase(session.getPhase()), session.getStatus(),
+                session.getStateVersion(), session.getSimulationTurnCount(), restored, options, page, scenario,
+                ready, session.isFinishSuggested());
+    }
+
+    private Optional<TrainingSession> activeSession() {
+        return sessions.findFirstByUserIdAndStatusAndExpiresAtAfterOrderByLastActivityAtDescIdDesc(
+                currentUser.id(), TrainingStatus.ACTIVE, Instant.now());
     }
 
     /** 훈련 재개: 마지막 진행 단계와 지난 대화를 돌려줘요. */
@@ -158,7 +208,9 @@ public class TrainingService {
         messages.save(saved);
         sessions.saveAndFlush(session);
 
-        // TODO(SIM-010): outcome.finished()이면 평가 결과로 리포트를 만들어 저장해요.
+        if (outcome.finished()) {
+            reports.recordCompletion(session, action, now);
+        }
         return TurnResponse.of(session, reply, outcome.keyScene(), outcome.finished());
     }
 

@@ -12,12 +12,12 @@ React ──HTTPS──▶ Spring Boot ──내부 HTTP──▶ FastAPI ──
                    │    │                       └──▶ 근거 문단 검색 (RAG, 후속)
                    │    └──▶ 가이드 데이터 YAML (카드·기관·연락처)
                    ├──▶ PostgreSQL (회원·서비스 데이터)
-                   └──▶ Redis (로그인 세션 공유가 필요하면 선택)
+                   └──▶ Redis (Spring Session 저장소)
 ```
 
 - 브라우저는 Spring Boot만 호출해요. FastAPI는 외부에 공개하지 않아요.
 - 목표 구조에서는 대응 카드, 기관명, 연락처, 공식 링크를 Spring이 검토된 YAML에서 골라요. 콘텐츠 로더·조회 API는 아직 미구현이에요. FastAPI의 RAG는 후속으로 근거 문단을 찾아 설명에 붙여요.
-- Redis와 RAG는 해당 기능을 만들 때 붙여요. 지금 뼈대에는 PostgreSQL만 있어요.
+- Redis 연결과 Spring Session 저장 기반이 있어요. 실제 로그인 API는 후속 AUTH 작업이고 RAG는 아직 미연결이에요.
 
 ## 개발 기준
 
@@ -30,27 +30,31 @@ React ──HTTPS──▶ Spring Boot ──내부 HTTP──▶ FastAPI ──
 ## 실행
 
 ```bash
-docker compose up -d     # 로컬 PostgreSQL
+docker compose up -d     # 로컬 PostgreSQL과 Redis
 ./gradlew bootRun        # http://localhost:8080  (처음 켤 때 테이블이 자동으로 만들어져요)
 ./gradlew test           # 단위 테스트 (DB 없이 돌아가요)
 ```
 
-프로필을 지정하지 않으면 `local`로 켜져요. `local`에서는 로그인 없이 개발용 계정(`dev@wsid.local`)으로 동작하고,
-AI도 가짜 구현(`wsid.ai.mode=fake`)이라 AI 서비스 없이 훈련 흐름이 끝까지 돌아요.
+IntelliJ에서는 Gradle 변경 사항을 동기화하고 서버를 재시작해요.
+Redis·세션·메일 환경변수와 통합 테스트 실행은 [AUTH 기반 설정](docs/auth-infrastructure.md)을 참고하세요.
 
-아래 요청은 **현재 임시 구현**을 실행하는 예제예요. 목표 API는 `/api/trainings`이고, 코드 경로는 아직 전환하지 않았어요.
+프로필을 지정하지 않으면 `local`로 켜져요. 훈련은 로컬에서도 로그인한 회원의 세션으로 이용해요.
+AI는 기본 가짜 구현(`wsid.ai.mode=fake`)이라 AI 서비스 없이 훈련 흐름을 확인할 수 있어요.
+
+아래 요청은 **현재 임시 구현**을 실행하는 예제예요. 목표 API는 `/api/trainings`이고, 코드 경로는 아직 전환하지 않았어요. `SESSION_COOKIE`에는 로그인으로 받은 쿠키 문자열(`SESSION=...`), `CSRF_HEADER`와 `CSRF_TOKEN`에는 같은 세션으로 `GET /api/auth/csrf`를 호출해 받은 `data.headerName`과 `data.token`을 넣어요.
 
 ```bash
 # 1. 훈련 시작 → 응답의 sessionId, stateVersion을 다음 요청에 써요
-curl -X POST localhost:8080/api/training/sessions
+curl -b "$SESSION_COOKIE" -H "$CSRF_HEADER: $CSRF_TOKEN" -X POST localhost:8080/api/training/sessions
 
 # 2. 답변 전송 (requestId는 메시지마다 새 UUID)
 curl -X POST localhost:8080/api/training/sessions/1/turns \
+  -b "$SESSION_COOKIE" -H "$CSRF_HEADER: $CSRF_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"requestId":"11111111-1111-1111-1111-111111111111","stateVersion":0,"message":"동네 카페에 갔어요"}'
 
 # 3. 이어하기
-curl localhost:8080/api/training/sessions/active
+curl -b "$SESSION_COOKIE" localhost:8080/api/training/sessions/active
 ```
 
 AI 서비스에 연결할 때는 `AI_MODE=http AI_BASE_URL=http://localhost:8000 ./gradlew bootRun`으로 실행해요.
@@ -149,7 +153,7 @@ ERD와 명세서를 맞춰 보다가 나온 항목이에요.
 - [x] **이용 자격**: 훈련과 리포트는 회원 전용, 피해 대응 AI 상담과 가이드 조회는 비회원도 이용해요.
 - [ ] **비회원 상담 소유권·저장 구조**: 현재 `solution_sessions.user_id`는 NOT NULL이고 users 외래키가 있어요. 비회원 상담을 저장·복원할 소유자 식별 방식과 스키마를 새 마이그레이션으로 설계해야 해요. 상담 ID만으로 접근을 허용하지 않아요.
 - [ ] **이메일 인증 코드 테이블**: AUTH-004(유효기간, 재발송 시 이전 코드 무효화, 재사용 금지)를 저장할 테이블이 ERD에 없어요.
-- [ ] **로그인 세션 저장 위치**: 서버 메모리에 두면 재시작할 때 모두 로그아웃돼요. DB에 두려면 Spring Session 테이블이 필요해요.
+- [x] **로그인 세션 저장 위치**: Spring Session Redis를 사용해요. 실제 인증 정보 저장은 AUTH-04에서 연결해요.
 - [ ] **phase, status, sender, input_kind의 값 이름**: 코드의 enum 값은 초안이에요. API 명세와 맞춰 확정해요.
 - [ ] **훈련 중 실제 피해 전환**: 어느 훈련에서 넘어온 대응인지 연결할 컬럼과 훈련의 일시 중지 상태가 ERD에 없어요.
 - [ ] **V2 제약 조건**: FK, 유니크, 인덱스는 제안이에요. 동의하면 ERD에도 반영해 주세요.

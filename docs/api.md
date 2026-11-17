@@ -9,7 +9,7 @@
 - 피해 대응 상담(SOL)은 로그인하지 않아도 시작할 수 있어요. 복원·메시지·사실 수정·종료는 해당 상담의 소유자만 할 수 있어요. 비회원 소유자 식별 방법과 저장 구조는 구현 전에 확정해야 해요. 상담 ID만 안다고 다른 상담을 조회할 수 있게 만들지 않아요.
 - GUIDE는 공개 조회예요. 내부 AI API는 Spring과 AI 서비스 사이의 호출이며 사용자에게 직접 공개하지 않아요.
 - AUTH-05는 기존 로그인 상태 확인용 GET이에요. 로그인 세션을 새로 생성하거나 토큰을 발급하지 않아요. 로그인 세션이 없거나 만료되면 401을 반환하는 계약으로 만들어요.
-- 로그인 성공 시 세션 쿠키를 발급하고, 로그아웃 시 서버 로그인 세션과 쿠키를 폐기해요. 로그인 세션 만료 시간·쿠키 설정·저장소는 별도로 정해요. 훈련 무활동 24시간 초안과 별개예요.
+- 로그인 성공 시 세션 쿠키를 발급해요. 저장 기반은 Spring Session Redis이고 SESSION 쿠키(HttpOnly, SameSite=Lax)를 사용해요. Secure는 기본 true, local HTTP에서만 false예요. 로그인 세션 무활동 만료 기본값은 30분이에요. 로그아웃하면 서버 세션과 쿠키를 폐기해요.
 
 ## 이름과 식별자
 
@@ -41,32 +41,48 @@ URL의 `sessions`는 리소스 이름이에요. 로그인 세션 기능을 켜�
 
 | API ID | 메서드 | 경로 | 인증 | 현재 구현 |
 |---|---|---|---|---|
-| AUTH-01 | POST | `/api/auth/signup` | 불필요 | User.signUp만; API·서비스 없음 |
-| AUTH-02 | POST | `/api/auth/email/resend` | 불필요 | 미구현; 인증 코드 저장소도 아직 없음 |
-| AUTH-03 | POST | `/api/auth/email/verify` | 불필요 | User.verifyEmail만; 코드 확인·API 없음 |
-| AUTH-04 | POST | `/api/auth/login` | 불필요 | 세션 방식 계획 일치; 로그인 구현 없음 |
-| AUTH-05 | GET | `/api/auth/session` | 필요 | 목표 API 문서화; 실제 세션 확인 API는 미구현 |
-| AUTH-06 | POST | `/api/auth/logout` | 필요 | 미구현; 문서에는 세션 폐기 계획 |
-| AUTH-07 | GET | `/api/users/me` | 필요 | 목표 API 문서화; 실제 회원정보 API는 미구현 |
+| AUTH-01 | POST | `/api/auth/signup` | 불필요 | 구현. 가입 신청 및 인증 메일 발송 |
+| AUTH-02 | POST | `/api/auth/email/resend` | 불필요 | 구현. 인증번호 재발송 |
+| AUTH-03 | POST | `/api/auth/email/verify` | 불필요 | 구현. 인증번호 확인 및 계정 활성화 |
+| AUTH-04 | POST | `/api/auth/login` | 불필요 | 구현. 이메일과 비밀번호로 로그인하고 세션 쿠키 발급 |
+| AUTH-05 | GET | `/api/auth/session` | 필요 | 구현. 기존 세션으로 로그인 상태 확인 |
+| AUTH-06 | POST | `/api/auth/logout` | 필요 | 구현. 서버 세션과 쿠키 폐기 |
+| AUTH-07 | GET | `/api/users/me` | 필요 | 구현. 로그인한 회원 정보 반환 |
+
+AUTH-04는 JSON의 `email`, `password`를 받아 활성 계정에 `SESSION` 쿠키를 발급해요. 비밀번호가 틀리거나 이메일이 등록되지 않았으면 401 `INVALID_CREDENTIALS`, 올바른 비밀번호를 입력했지만 이메일 인증 전이면 403 `EMAIL_NOT_VERIFIED`를 반환해요.
+
+AUTH-04의 성공 응답은 `data.user`에 `id`, `email`, `gender`를 담아요. AUTH-05의 성공 응답은 같은 `data.user`와 `data.authenticated: true`를 담아요. 세션이 없거나 만료되면 401 `LOGIN_REQUIRED`를 반환해요.
+
+AUTH-06은 본문 없이 호출해요. 먼저 세션 쿠키로 `GET /api/auth/csrf`를 호출해 `data.headerName`, `data.token`을 받고, 로그아웃 요청에 해당 헤더를 넣어요. 토큰이 없거나 유효하지 않으면 403, 성공하면 204를 반환하고 세션 쿠키를 만료시켜요. 이 토큰 전달 방식은 노션에서 미정이므로 팀 확인이 필요해요.
+
+AUTH-07은 `data`에 `id`, `email`, `gender`, `status`, `createdAt`을 반환해요. 두 API 모두 로그인 세션이 없으면 401 `LOGIN_REQUIRED`를 반환해요.
+
+가입·인증·로그인 POST는 JSON을 받아요. 로컬에서는 기본으로 `http://localhost:8443`의 프론트 요청과 세션 쿠키를 허용해요. 운영에서 프론트와 API의 출처가 다르면 `WSID_CORS_ALLOWED_ORIGINS`에 허용할 프론트 HTTPS 출처를 쉼표로 구분해 설정해요. 프론트와 `/api`가 같은 출처라면 이 설정은 비워두면 돼요.
+
+현재 구현된 `/api/training/**`는 로컬에서도 로그인 세션으로 소유자를 확인해요. 변경 요청은 로그아웃과 같은 CSRF 헤더를 요구해요. 인증 없이 조회하면 401, 다른 회원의 훈련을 조회하면 404를 반환해요.
 
 ## 유형·가이드
 
 | API ID | 메서드 | 경로 | 인증 | 현재 구현 |
 |---|---|---|---|---|
-| GUIDE-01 | GET | `/api/guides/fraud-types` | 불필요 | content 문서 계획; 로더·API 없음, 현재 보안 규칙에 공개 경로 등록 필요 |
-| GUIDE-02 | GET | `/api/guides/fraud-types/{code}` | 불필요 | content 문서 계획; 로더·API 없음 |
-| GUIDE-03 | GET | `/api/guides/response-cards` | 불필요 | 카드 형식 README만; 적용 조건의 요청·응답 정의 필요 |
-| GUIDE-04 | GET | `/api/guides/institutions` | 불필요 | content 문서 계획; API 없음 |
+| GUIDE-01 | GET | `/api/guides/fraud-types` | 불필요 | 유형 목록 |
+| GUIDE-02 | GET | `/api/guides/fraud-types/{code}` | 불필요 | 유형 상세, 미공개·미등록 코드는 404 `GUIDE_NOT_FOUND` |
+| GUIDE-03 | GET | `/api/guides/response-cards` | 불필요 | `codes` 쉼표 구분 필터. 생략하면 전체 공개 카드 |
+| GUIDE-04 | GET | `/api/guides/institutions` | 불필요 | 기관 목록 |
+
+가이드는 `content/guides.yml`에서 팀 검토 완료 항목을 읽어요. 승인된 데이터가 등록되기 전에는 빈 목록을 반환해요.
 
 ## 리포트
 
 | API ID | 메서드 | 경로 | 인증 | 현재 구현 |
 |---|---|---|---|---|
-| RPT-01 | GET | `/api/trainings/{id}/report` | 필요 | 엔티티·repository만; 목표 경로의 서비스·API 미구현 |
-| RPT-02 | POST | `/api/reports/{id}/save` | 필요 | saveToMyReports 엔티티 메서드만; 원문 삭제·API 없음 |
-| RPT-03 | GET | `/api/reports` | 필요 | repository TODO; API 없음 |
-| RPT-04 | GET | `/api/reports/{id}` | 필요 | 문서 계획; 소유권 조회 서비스·API 없음 |
-| RPT-05 | GET | `/api/reports/{id}/pdf` | 필요 | 문서 계획; PDF 생성·API 없음 |
+| RPT-01 | GET | `/api/trainings/{id}/report` | 필요 | 본인 훈련의 리포트 조회. 저장 전에도 가능 |
+| RPT-02 | POST | `/api/reports/{id}/save` | 필요 | CSRF 헤더 필요. 저장과 원문 삭제를 한 트랜잭션으로 처리 |
+| RPT-03 | GET | `/api/reports` | 필요 | 본인이 저장한 리포트를 완료 최신순으로 조회. `size` 1~100, 기본 10 |
+| RPT-04 | GET | `/api/reports/{id}` | 필요 | 본인이 저장한 리포트 상세 조회 |
+| RPT-05 | GET | `/api/reports/{id}/pdf` | 필요 | 본인 리포트의 PDF 바이너리 다운로드 |
+
+TRN-11이 완료되면 리포트를 만들어요. 기본 모드는 규칙 기반 평가를 생성하고, HTTP 모드는 AI-05를 호출해요. RPT-03의 노션 오류 예시 `TOKEN_EXPIRED`는 서버 세션 정책에 맞춰 `401 LOGIN_REQUIRED`로 보완할 필요가 있어요. 다음 페이지는 `nextCursor` 값을 그대로 보내요.
 
 ## 피해 대응
 
@@ -82,14 +98,20 @@ URL의 `sessions`는 리소스 이름이에요. 로그인 세션 기능을 켜�
 
 | API ID | 메서드 | 경로 | 인증 | 현재 구현 |
 |---|---|---|---|---|
-| TRN-01 | POST | `/api/trainings` | 필요 | 기존 POST /api/training/sessions에서 동작; 경로 불일치 |
-| TRN-02 | GET | `/api/trainings/active` | 필요 | 기존 GET /api/training/sessions/active에서 동작; 경로 불일치 |
-| TRN-03 | GET | `/api/trainings/{id}` | 필요 | 기존 GET /api/training/sessions/{id}에서 동작; 선택지 복원 없음 |
-| TRN-04 | POST | `/api/trainings/{id}/discovery/messages` | 필요 | 기존 /turns가 처리; 첫 답변 뒤 즉시 훈련으로 전이, 후속 질문·사실 추출 없음 |
-| TRN-05 | POST | `/api/trainings/{id}/discovery/images` | 필요 | 미구현; 파일 제한 검증·임시 보관·삭제 구현 필요 |
-| TRN-06 | POST | `/api/trainings/{id}/scenario` | 필요 | 별도 API 없음; 기본 유형 고정 |
-| TRN-07 | POST | `/api/trainings/{id}/start` | 필요 | 별도 API 없음; finishDiscovery가 beginSimulation 직접 호출 |
-| TRN-08 | POST | `/api/trainings/{id}/messages` | 필요 | 기존 /api/training/sessions/{id}/turns에서 동작; 경로·AI 맥락 불일치 |
-| TRN-09 | GET | `/api/trainings/{id}/mock-page` | 필요 | 템플릿 코드 컬럼만; 응답 DTO·조회 없음 |
-| TRN-10 | POST | `/api/trainings/{id}/actions` | 필요 | InputKind.ACTION·JSON 컬럼만; API·동작 없음 |
-| TRN-11 | POST | `/api/trainings/{id}/finish` | 필요 | 자동 종료만 있음; 직접 종료·리포트 생성·API 없음 |
+| TRN-01 | POST | `/api/trainings` | 필요 | 구현. CSRF 헤더와 JSON `{}`를 보내면 새 훈련과 첫 질문을 반환 |
+| TRN-02 | GET | `/api/trainings/active` | 필요 | 구현. 만료되지 않은 최근 훈련을 반환하며 없으면 `200`과 `data: null` |
+| TRN-03 | GET | `/api/trainings/{id}` | 필요 | undefined |
+| TRN-04 | POST | `/api/trainings/{id}/discovery/messages` | 필요 | 구현. 상황 파악 답변과 다음 질문 저장, 민감정보 및 중복 요청 차단 |
+| TRN-05 | POST | `/api/trainings/{id}/discovery/images` | 필요 | 구현. PNG/JPEG 최대 3장, 장당 5MB. 실제 OCR은 AI-02 필요 |
+| TRN-06 | POST | `/api/trainings/{id}/scenario` | 필요 | 구현. 상황 파악 완료 후 시나리오 생성과 SCENARIO_READY 전환 |
+| TRN-07 | POST | `/api/trainings/{id}/start` | 필요 | 구현. 준비된 시나리오로 가상 훈련 시작 |
+| TRN-08 | POST | `/api/trainings/{id}/messages` | 필요 | 구현. 텍스트·선택지 요청 처리, 다음 대사·판정·종료 제안 반환 |
+| TRN-09 | GET | `/api/trainings/{id}/mock-page` | 필요 | 구현. 가상 금융 모의 페이지 조회 |
+| TRN-10 | POST | `/api/trainings/{id}/actions` | 필요 | 구현. 가상 화면 행동과 허용된 메타데이터만 저장 |
+| TRN-11 | POST | `/api/trainings/{id}/finish` | 필요 | 구현. 훈련 종료와 리포트 저장을 함께 처리. 반복 종료 시 같은 리포트 반환 |
+
+훈련 변경 요청에는 로그인 세션의 CSRF 헤더가 필요해요. `stateVersion` 충돌은 409 `STATE_VERSION_CONFLICT`, 이미 저장된 메시지·행동 요청 ID는 409 `DUPLICATE_REQUEST`를 반환해요.
+
+기본 `AI_MODE=fake`에서는 상황 답변 3회 뒤 검토된 중고거래 예시로 진행하고, OCR은 직접 입력을 안내해요. `AI_MODE=http`에서는 노션의 AI-01~05 경로와 `success/data` 형식으로 FastAPI를 호출해요. AI 평가가 실패하면 훈련을 완료 처리하지 않아 다시 종료 요청을 보낼 수 있어요.
+
+팀 확인 항목은 내부 AI의 세부 필드(사기 유형 코드, 시나리오 첫 대사), 금융 외 모의 페이지 코드, 프론트 상태 복구에 쓰는 TRN-03 추가 필드(`scenario`, `messages[].phase`, `canGenerateScenario`, `shouldFinish`)예요.

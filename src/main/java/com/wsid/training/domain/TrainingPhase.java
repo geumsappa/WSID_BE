@@ -7,6 +7,7 @@ package com.wsid.training.domain;
 public enum TrainingPhase {
     /** 일상 대화로 훈련 소재를 찾는 단계 (상황 대화) */
     DISCOVERY,
+    SCENARIO_READY,
     /** 가상 인물과 대화하는 단계 (가상 훈련) */
     SIMULATION,
     /** 훈련이 끝나 리포트를 볼 수 있는 단계 */

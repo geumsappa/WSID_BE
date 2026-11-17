@@ -2,17 +2,31 @@ package com.wsid.auth;
 
 import com.wsid.common.error.ApiException;
 import com.wsid.common.error.ErrorCode;
-import org.springframework.context.annotation.Profile;
+import com.wsid.auth.service.LoginService;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
-/** local 이외의 프로필에서 쓰는 구현. 로그인 세션에서 사용자 ID를 꺼내요. */
+/** 로그인 세션에서 현재 활성 회원의 ID를 확인해요. */
 @Component
-@Profile("!local")
 public class LoginCurrentUser implements CurrentUser {
+    private final LoginService loginService;
+
+    public LoginCurrentUser(LoginService loginService) {
+        this.loginService = loginService;
+    }
 
     @Override
     public long id() {
-        // TODO(AUTH-002): Spring Security의 로그인 세션에서 사용자 ID를 꺼내요.
-        throw new ApiException(ErrorCode.LOGIN_REQUIRED);
+        return loginService.requireActiveUser(requireUserId(SecurityContextHolder.getContext().getAuthentication()))
+                .getId();
+    }
+
+    public static long requireUserId(Authentication authentication) {
+        if (authentication == null || !authentication.isAuthenticated()
+                || !(authentication.getPrincipal() instanceof Long userId)) {
+            throw new ApiException(ErrorCode.LOGIN_REQUIRED);
+        }
+        return userId;
     }
 }

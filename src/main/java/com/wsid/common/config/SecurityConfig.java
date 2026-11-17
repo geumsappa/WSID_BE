@@ -1,21 +1,78 @@
 package com.wsid.common.config;
 
+import java.util.Arrays;
+import java.util.List;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
+import org.springframework.security.web.csrf.CsrfFilter;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 @Configuration
 public class SecurityConfig {
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    UrlBasedCorsConfigurationSource corsConfigurationSource(
+            @Value("${wsid.cors.allowed-origins:}") String configuredOrigins) {
+        var source = new UrlBasedCorsConfigurationSource();
+        var origins = Arrays.stream(configuredOrigins.split(","))
+                .map(String::strip).filter(origin -> !origin.isEmpty()).toList();
+        if (!origins.isEmpty()) {
+            var cors = new CorsConfiguration();
+            cors.setAllowedOrigins(origins);
+            cors.setAllowCredentials(true);
+            cors.setAllowedMethods(List.of("GET", "POST", "PATCH"));
+            cors.setAllowedHeaders(List.of(HttpHeaders.CONTENT_TYPE, "X-CSRF-TOKEN"));
+            cors.setExposedHeaders(List.of(HttpHeaders.CONTENT_DISPOSITION));
+            cors.validateAllowCredentials();
+            source.registerCorsConfiguration("/api/**", cors);
+        }
+        return source;
+    }
+
+    @Bean
+    HttpSessionSecurityContextRepository securityContextRepository() {
+        return new HttpSessionSecurityContextRepository();
+    }
+
+    @Bean
+    SecurityFilterChain securityFilterChain(HttpSecurity http,
+            HttpSessionSecurityContextRepository securityContextRepository,
+            UrlBasedCorsConfigurationSource corsConfigurationSource) throws Exception {
+        var logout = PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/auth/logout");
+        var training = PathPatternRequestMatcher.withDefaults().matcher("/api/training/**");
+        var createTraining = PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/trainings");
+        var trainingApi = PathPatternRequestMatcher.withDefaults().matcher("/api/trainings/{id}/**");
+        var saveReport = PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/reports/{id}/save");
         http
-            // TODO(AUTH): 세션 로그인을 붙일 때 CSRF 정책을 정해요. 지금은 API 개발을 위해 꺼 둔 상태예요.
-            .csrf(csrf -> csrf.disable())
+            .cors(cors -> cors.configurationSource(corsConfigurationSource))
+            .securityContext(context -> context.securityContextRepository(securityContextRepository))
+            // 비로그인 요청의 401은 인증 API와 훈련 서비스가 반환해요.
+            .csrf(csrf -> csrf.requireCsrfProtectionMatcher(request -> {
+                var authentication = SecurityContextHolder.getContext().getAuthentication();
+                return authentication != null && authentication.isAuthenticated()
+                        && authentication.getPrincipal() instanceof Long
+                        && (logout.matches(request) || saveReport.matches(request) || createTraining.matches(request)
+                            || ((training.matches(request) || trainingApi.matches(request))
+                                && CsrfFilter.DEFAULT_CSRF_MATCHER.matches(request)));
+            }))
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/api/auth/**", "/api/training/**", "/api/solution/**", "/api/content/**").permitAll()
-                // TODO(AUTH-002): 로그인을 붙이면 training, solution도 로그인 사용자만 쓰도록 좁혀요 (user_id NOT NULL)
+                .requestMatchers(HttpMethod.GET, "/api/guides/**", "/api/trainings/active",
+                        "/api/trainings/{id}", "/api/trainings/{id}/report").permitAll()
+                .requestMatchers(createTraining).permitAll()
+                .requestMatchers(trainingApi).permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/reports", "/api/reports/{id}", "/api/reports/{id}/pdf").permitAll()
+                .requestMatchers(saveReport).permitAll()
+                .requestMatchers("/api/auth/**", "/api/users/me", "/api/training/**", "/api/solution/**",
+                        "/api/content/**").permitAll()
                 .anyRequest().authenticated());
         return http.build();
     }
