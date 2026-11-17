@@ -84,7 +84,7 @@ AUTH-07은 `data`에 `id`, `email`, `gender`, `status`, `createdAt`을 반환해
 
 | API ID | 메서드 | 경로 | 인증 | 현재 구현 |
 |---|---|---|---|---|
-| SOL-01 | POST | `/api/solutions/sessions` | 불필요 (비회원 상담 소유권 확인 필요) | SolutionSession.start만; 시작 설명 즉시 추출 없음 |
+| SOL-01 | POST | `/api/solutions/sessions` | 불필요 (비회원 상담 소유권 확인 필요) | 구현: 회원/비회원 소유자·CSRF·민감정보 거부·AI-06 추출·질문·카드 규칙. 운영 카드 콘텐츠 없음([보고서](sol-01-session-start.md)) |
 | SOL-02 | GET | `/api/solutions/sessions/{id}` | 불필요 (비회원 상담 소유권 확인 필요) | 엔티티·소유자 조건 repository만; 서비스·API 없음 |
 | SOL-03 | POST | `/api/solutions/sessions/{id}/messages` | 불필요 (비회원 상담 소유권 확인 필요) | 메시지 엔티티만; 서비스·API 없음 |
 | SOL-04 | PATCH | `/api/solutions/sessions/{id}/facts` | 불필요 (비회원 상담 소유권 확인 필요) | factsJson 컬럼만; 병합·재판정·API 없음 |

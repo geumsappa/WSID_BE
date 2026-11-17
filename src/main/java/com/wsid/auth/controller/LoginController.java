@@ -59,11 +59,12 @@ public class LoginController {
         return Success.of(new Session(true, UserSummary.from(user)));
     }
 
+    /**
+     * 회원·비회원 모두 발급해요. 비회원 상담(/api/solutions/**)도 쿠키 세션 변경 요청이라 CSRF 토큰이 필요해요.
+     * 토큰은 서버 세션에 저장되고 별도 만료·재발급(refresh) 없이 세션과 함께 사라져요.
+     */
     @GetMapping("/csrf")
-    public Success<Csrf> csrf(Authentication authentication,
-            @RequestAttribute(name = "_csrf") CsrfToken token,
-            HttpServletResponse response) {
-        requireUserId(authentication);
+    public Success<Csrf> csrf(@RequestAttribute(name = "_csrf") CsrfToken token, HttpServletResponse response) {
         response.setHeader("Cache-Control", "no-store");
         return Success.of(new Csrf(token.getHeaderName(), token.getToken()));
     }

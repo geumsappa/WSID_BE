@@ -22,7 +22,15 @@ public enum ErrorCode {
     SESSION_VERSION_CONFLICT(HttpStatus.CONFLICT, "화면이 최신 상태가 아니에요. 다시 불러와 주세요."),
     DUPLICATE_REQUEST(HttpStatus.CONFLICT, "이미 반영된 메시지예요. 화면을 다시 불러와 주세요."),
     SESSION_FINISHED(HttpStatus.CONFLICT, "이미 끝난 훈련이에요."),
-    SESSION_EXPIRED(HttpStatus.GONE, "오래 활동이 없어 훈련이 만료됐어요. 새 훈련을 시작해 주세요.");
+    SESSION_EXPIRED(HttpStatus.GONE, "오래 활동이 없어 훈련이 만료됐어요. 새 훈련을 시작해 주세요."),
+    /** 쿠키 기반 변경 요청의 CSRF 토큰이 없거나 맞지 않을 때. 보안 필터에서 응답해요. */
+    CSRF_TOKEN_INVALID(HttpStatus.FORBIDDEN, "보안 확인 정보가 없거나 만료됐어요. 화면을 새로고침한 뒤 다시 시도해 주세요."),
+    /** 피해 설명에 주민번호·계좌/카드·전화번호·인증번호 등이 보이면 저장·AI 전송 없이 거부해요. */
+    SENSITIVE_DATA_DETECTED(HttpStatus.BAD_REQUEST, "주민등록번호, 계좌·카드번호, 전화번호, 인증번호 같은 정보는 빼고 다시 입력해 주세요."),
+    /** 없는 상담과 다른 사람의 상담을 구분하지 않고 같은 404로 응답해요(SOL-02~05). */
+    SOLUTION_NOT_FOUND(HttpStatus.NOT_FOUND, "상담을 찾을 수 없어요."),
+    /** 규칙이 요구하는 검토된 대응 카드가 없을 때. 긴급 안내를 빠뜨린 성공 응답을 보내지 않아요. */
+    RESPONSE_CONTENT_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "대응 안내를 준비하지 못했어요. 잠시 후 다시 시도해 주세요.");
 
     private final HttpStatus status;
     private final String message;

@@ -7,16 +7,16 @@
 
 | 명세서 항목 | ID | 우선순위 | 상태 | 관련 코드 |
 |---|---|---|---|---|
-| 피해 설명 또는 선택으로 시작 | SOL-003 | 상 | 엔티티만 | `SolutionSession.start` |
-| 설명에서 확인 항목 추출 | SOL-003 · I5 | 상 | AI-06 클라이언트 구현; 상담 미연결 | `AiClient.extractSolutionFacts`, `facts_json` 컬럼 |
-| 필요한 항목 추가 질문 | SOL-003 | 상 | 미구현 | `next_question_json` 컬럼 |
+| 피해 설명 또는 선택으로 시작 | SOL-003 | 상 | SOL-01 구현 | `StartSolutionService`, `SolutionController` |
+| 설명에서 확인 항목 추출 | SOL-003 · I5 | 상 | 상담 시작에 연결 | `StartSolutionService`, `SolutionFacts` |
+| 필요한 항목 추가 질문 | SOL-003 | 상 | 첫 질문만 구현 | `SolutionQuestion` |
 | 파악된 내용 수정 | SOL-003 | 상 | 미구현 | - |
-| 분석 실패 시 직접 선택 | SOL-003 | 상 | 미구현 | `InputKind.OPTION`, `selected_code` |
-| 긴급 안내 우선 표시 | SOL-007 | 상 | 미구현 | - |
+| 분석 실패 시 직접 선택 | SOL-003 | 상 | 시작 시 대체 구현, 선택 응답(SOL-03) 미구현 | `StartSolutionService`, `InputKind.OPTION` |
+| 긴급 안내 우선 표시 | SOL-007 | 상 | 규칙·정렬 구현, 운영 카드 없음 | `ResponseRules` |
 | 필요한 대응 카드 제공 | SOL-004 | 상 | 미구현 | `card_codes_json` 컬럼 |
 | 확인한 사실과 카드 다시 보기 | SOL-004 | 중 | 미구현 | - |
 | 공식 근거 문단 검색·설명 | SOL-004 · I6 | 중 | AI-07 설명 클라이언트만 구현; 검색·상담 미연결 | `AiClient.explainSolution`, `reference_codes_json` 컬럼 |
-| 피해 설명의 민감정보 처리 | 비기능 · I5 | 상 | 미구현 | `safe_content` 컬럼 |
+| 피해 설명의 민감정보 처리 | 비기능 · I5 | 상 | 초안 거부 규칙 구현 | `SensitiveDescriptionGuard` |
 
 ## 이용 정책과 목표 API
 
@@ -24,13 +24,13 @@
 
 | API ID | 메서드 | 경로 | 인증 | 현재 구현 |
 |---|---|---|---|---|
-| SOL-01 | POST | `/api/solutions/sessions` | 불필요 (비회원 상담 소유권 확인 필요) | SolutionSession.start만; 시작 설명 즉시 추출 없음 |
+| SOL-01 | POST | `/api/solutions/sessions` | 불필요 (비회원 상담 소유권 확인 필요) | 구현([보고서](../../../../../../docs/sol-01-session-start.md)) |
 | SOL-02 | GET | `/api/solutions/sessions/{id}` | 불필요 (비회원 상담 소유권 확인 필요) | 엔티티·소유자 조건 repository만; 서비스·API 없음 |
 | SOL-03 | POST | `/api/solutions/sessions/{id}/messages` | 불필요 (비회원 상담 소유권 확인 필요) | 메시지 엔티티만; 서비스·API 없음 |
 | SOL-04 | PATCH | `/api/solutions/sessions/{id}/facts` | 불필요 (비회원 상담 소유권 확인 필요) | factsJson 컬럼만; 병합·재판정·API 없음 |
 | SOL-05 | POST | `/api/solutions/sessions/{id}/complete` | 불필요 (비회원 상담 소유권 확인 필요) | completedAt 컬럼만; 종료 메서드·API 없음 |
 
-현재는 `solution_sessions.user_id NOT NULL` 및 users 외래키, `CurrentUser` 기반 계정 식별 구조만 있어 비회원 상담을 처리할 수 없어요. 비회원 소유자 식별 방법·저장 구조·복원 범위를 설계하고 새 마이그레이션으로 지원해야 해요. 구체적인 쿠키·식별자 계약은 아직 확정하지 않았어요. 상담 ID만 받아 타인 상담을 조회하게 만들지 않아요.
+소유자는 `SolutionOwnerResolver`가 정해요. 회원은 로그인 principal, 비회원은 HTTP 세션에 발급한 익명 UUID(`anonymous_owner_id`, V3)예요. 비회원은 `GET /api/auth/csrf`로 세션·토큰을 받은 뒤 같은 쿠키와 `X-CSRF-TOKEN`으로 요청해요. SOL-02~05는 `SolutionSessionRepository.findOwned`로만 조회하고, 상담 ID만 받아 타인 상담을 조회하게 만들지 않아요.
 
 ## 테이블
 

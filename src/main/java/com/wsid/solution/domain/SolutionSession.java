@@ -10,11 +10,17 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import org.hibernate.annotations.ColumnTransformer;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * solution_sessions 테이블. 피해 대응 한 건의 현재 상태예요.
- * 확인한 사실과 적용된 카드 코드만 저장하고, 피해 설명 원문은 저장하지 않아요.
+ * 확인한 사실과 적용된 카드 코드·버전만 저장하고, 피해 설명 원문은 저장하지 않아요.
+ * 소유자는 회원(user_id)과 비회원(anonymous_owner_id) 중 정확히 하나예요(DB CHECK 제약).
  */
 @Entity
 @Table(name = "solution_sessions")
@@ -24,8 +30,14 @@ public class SolutionSession {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "user_id", nullable = false, updatable = false)
+    private static final ObjectMapper JSON = new ObjectMapper();
+
+    @Column(name = "user_id", updatable = false)
     private Long userId;
+
+    /** 비회원 상담 소유자. 서버가 HTTP 세션에 발급한 UUID이며 응답에 노출하지 않아요. */
+    @Column(name = "anonymous_owner_id", updatable = false)
+    private UUID anonymousOwnerId;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
@@ -34,17 +46,17 @@ public class SolutionSession {
     @Column(name = "fraud_type_code", length = 50)
     private String fraudTypeCode;
 
-    /** 확인한 사실. 예: {"송금": "아니오", "앱 설치": "예", "정보 제공": "모름"} */
+    /** 확인한 사실. 예: {"transferredMoney":"YES","sharedInformation":"UNKNOWN","installedApp":"UNKNOWN","contactContinues":"NO"} */
     @Column(name = "facts_json", nullable = false, columnDefinition = "jsonb")
     @ColumnTransformer(write = "cast(? as jsonb)")
     private String factsJson;
 
-    /** 적용된 대응 카드 코드 목록. 예: ["CARD_APP_INSTALLED"] */
+    /** 적용된 대응 카드 참조(본문 복사 없음). 예: [{"code":"TRANSFER_RESPONSE","version":1}] */
     @Column(name = "card_codes_json", nullable = false, columnDefinition = "jsonb")
     @ColumnTransformer(write = "cast(? as jsonb)")
     private String cardCodesJson;
 
-    /** 아직 답을 받지 못한 다음 질문 */
+    /** 아직 답을 받지 못한 다음 질문. 예: {"factKey":"sharedInformation","content":"...","options":["YES","NO","UNKNOWN"]} */
     @Column(name = "next_question_json", columnDefinition = "jsonb")
     @ColumnTransformer(write = "cast(? as jsonb)")
     private String nextQuestionJson;
@@ -66,19 +78,33 @@ public class SolutionSession {
         // JPA용
     }
 
-    /** SOL-003: 피해 대응을 시작해요. */
-    public static SolutionSession start(long userId, Instant now) {
+    /**
+     * SOL-01: 초기 상태를 모두 채운 새 상담. 저장 전에 완성해 첫 INSERT의 state_version이 0이 되게 해요.
+     * fraud_type_code는 시작 시 추정하지 않아 null이에요.
+     */
+    public static SolutionSession start(SolutionOwner owner, SolutionFacts facts, List<ResponseCard> cards,
+            SolutionQuestion nextQuestion, Instant now) {
+        if (owner == null || facts == null || cards == null || now == null) {
+            throw new IllegalArgumentException("상담 초기 상태가 올바르지 않아요.");
+        }
         SolutionSession session = new SolutionSession();
-        session.userId = userId;
+        session.userId = owner.userId();
+        session.anonymousOwnerId = owner.anonymousId();
         session.status = SolutionStatus.ACTIVE;
-        session.factsJson = "{}";
-        session.cardCodesJson = "[]";
+        session.factsJson = JSON.writeValueAsString(facts.toKeyMap());
+        session.cardCodesJson = JSON.writeValueAsString(cards.stream().map(card -> {
+            Map<String, Object> ref = new LinkedHashMap<>();
+            ref.put("code", card.code());
+            ref.put("version", card.version());
+            return ref;
+        }).toList());
+        session.nextQuestionJson = nextQuestion == null ? null : JSON.writeValueAsString(nextQuestion);
         session.createdAt = now;
         session.updatedAt = now;
         return session;
     }
 
-    // TODO(SOL-003, SOL-004, SOL-007): 사실 갱신, 대응 규칙 적용, 긴급 카드 우선 표시 규칙을 여기에 추가해요.
+    // TODO(SOL-03, SOL-04): 사실 갱신·사용자 확정값 보호·카드 재판정을 여기에 추가해요.
 
     public Long getId() {
         return id;
@@ -86,6 +112,10 @@ public class SolutionSession {
 
     public Long getUserId() {
         return userId;
+    }
+
+    public UUID getAnonymousOwnerId() {
+        return anonymousOwnerId;
     }
 
     public SolutionStatus getStatus() {
