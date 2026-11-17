@@ -9,18 +9,14 @@ Docker Desktop을 켜고 PowerShell에서 실행해요.
 ```powershell
 cd C:\work\WSID\WSID_BE
 docker compose up -d
-docker start wsid-redis
-docker exec wsid-redis redis-cli ping
+docker compose ps
+docker compose exec redis redis-cli ping
 .\gradlew.bat bootRun
 ```
 
-Redis가 처음이라면 `docker start` 대신 아래 명령을 한 번 실행해요. 기존 컨테이너가 있으면 다시 만들지 않아요.
+`docker compose up -d`는 PostgreSQL과 Redis를 함께 시작해요. Redis가 준비되면 `PONG`이 반환돼요. 이전에 별도 Redis 컨테이너를 실행해서 6379 포트를 사용 중이라면 그 컨테이너를 중지한 뒤 Compose를 다시 실행해요.
 
-```powershell
-docker run -d --name wsid-redis -p 127.0.0.1:6379:6379 redis:7
-```
-
-IntelliJ에서는 Gradle을 동기화한 뒤 백엔드 실행 구성을 재시작해요. 실행 구성의 Environment variables에 아래 설정을 넣을 수 있어요. `.env` 파일은 이 Spring 실행 방식에서 자동으로 읽지 않아요.
+IntelliJ에서는 Gradle을 동기화한 뒤 백엔드 실행 구성을 재시작해요. 로컬 실행 설정의 Working directory가 `WSID_BE`이면 Spring이 해당 폴더의 `.env`를 읽어요.
 
 ## Redis와 세션
 

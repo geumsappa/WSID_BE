@@ -30,14 +30,12 @@ React ──HTTPS──▶ Spring Boot ──내부 HTTP──▶ FastAPI ──
 ## 실행
 
 ```bash
-docker compose up -d     # 로컬 PostgreSQL
-docker start wsid-redis  # 이미 생성한 Redis 컨테이너
+docker compose up -d     # 로컬 PostgreSQL과 Redis
 ./gradlew bootRun        # http://localhost:8080  (처음 켤 때 테이블이 자동으로 만들어져요)
 ./gradlew test           # 단위 테스트 (DB 없이 돌아가요)
 ```
 
-Redis를 아직 생성하지 않았다면 최초 한 번 `docker run -d --name wsid-redis -p 127.0.0.1:6379:6379 redis:7`을 실행해요.
-Compose에는 PostgreSQL만 있고 Redis는 별도 컨테이너예요. IntelliJ에서는 Gradle 변경 사항을 동기화하고 서버를 재시작해요.
+IntelliJ에서는 Gradle 변경 사항을 동기화하고 서버를 재시작해요.
 Redis·세션·메일 환경변수와 통합 테스트 실행은 [AUTH 기반 설정](docs/auth-infrastructure.md)을 참고하세요.
 
 프로필을 지정하지 않으면 `local`로 켜져요. 훈련은 로컬에서도 로그인한 회원의 세션으로 이용해요.

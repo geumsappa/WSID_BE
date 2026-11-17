@@ -1,7 +1,13 @@
-# 로컬 개발용 DB. 각자 자기 컴퓨터에서 띄워요.
+# 로컬 개발용 PostgreSQL과 Redis. 각자 자기 컴퓨터에서 띄워요.
 #   docker compose up -d      시작
 #   docker compose down -v    데이터까지 지우고 종료
 services:
+  redis:
+    image: redis:7
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - wsid-redis-data:/data
   db:
     image: postgres:17
     environment:
@@ -15,3 +21,4 @@ services:
 
 volumes:
   wsid-db:
+  wsid-redis-data:
