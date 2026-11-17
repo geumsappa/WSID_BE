@@ -97,6 +97,21 @@ public class SolutionMessage {
         return message;
     }
 
+    /**
+     * SOL-04 직접 정정 기록. PATCH에는 요청 UUID가 없어 client_request_id는 NULL이에요.
+     * OPTION·fact_key·selected_code를 채우므로 UNKNOWN 정정도 SOL-03의 답변 완료 이력으로 읽혀요.
+     */
+    public static SolutionMessage correction(long solutionId, int sequenceNo, SolutionFact fact, FactValue value, Instant now) {
+        if (fact == null || value == null) throw new IllegalArgumentException("수정 기록이 올바르지 않아요.");
+        SolutionMessage message = of(solutionId, MessageSender.USER, InputKind.OPTION, sequenceNo,
+                CORRECTION_PREFIX + fact.question() + " 선택: " + value.name(), null, now);
+        message.factKey = fact.key();
+        message.selectedCode = value.name();
+        return message;
+    }
+
+    public static final String CORRECTION_PREFIX = "사실 수정: ";
+
     public String getFactKey() { return factKey; }
 
     public UUID getClientRequestId() { return clientRequestId; }

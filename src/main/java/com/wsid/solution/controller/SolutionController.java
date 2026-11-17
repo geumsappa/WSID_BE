@@ -8,10 +8,12 @@ import com.wsid.solution.dto.StartSolutionRequest;
 import com.wsid.solution.dto.StartSolutionResponse;
 import com.wsid.solution.dto.SendSolutionMessageRequest;
 import com.wsid.solution.dto.SolutionMessageResponse;
+import com.wsid.solution.dto.UpdateSolutionFactsRequest;
 import com.wsid.solution.security.SolutionOwnerResolver;
 import com.wsid.solution.service.SolutionQueryService;
 import com.wsid.solution.service.StartSolutionService;
 import com.wsid.solution.service.SendSolutionMessageService;
+import com.wsid.solution.service.UpdateSolutionFactsService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
@@ -22,6 +24,7 @@ import org.springframework.http.InvalidMediaTypeException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
@@ -31,6 +34,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import tools.jackson.core.JacksonException;
+import tools.jackson.core.StreamReadFeature;
 import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -41,21 +45,25 @@ import tools.jackson.databind.json.JsonMapper;
 @RequestMapping("/api/solutions")
 public class SolutionController {
     private static final Pattern POSITIVE_ID = Pattern.compile("[1-9][0-9]{0,18}");
-    private static final ObjectMapper MESSAGE_JSON = JsonMapper.builder()
-            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).build();
-    private static final int MAX_MESSAGE_BODY_BYTES = 16 * 1024;
+    /** SOL-03·04 본문 파서. 후행 JSON과 중복 키를 거부해요(SOL-01은 기본 바인딩을 그대로 써요). */
+    private static final ObjectMapper STRICT_JSON = JsonMapper.builder()
+            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+            .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION).build();
+    private static final int MAX_BODY_BYTES = 16 * 1024;
 
     private final StartSolutionService startService;
     private final SolutionQueryService queryService;
     private final SolutionOwnerResolver owners;
     private final SendSolutionMessageService messageService;
+    private final UpdateSolutionFactsService factsService;
 
     public SolutionController(StartSolutionService startService, SolutionQueryService queryService,
-            SolutionOwnerResolver owners, SendSolutionMessageService messageService) {
+            SolutionOwnerResolver owners, SendSolutionMessageService messageService, UpdateSolutionFactsService factsService) {
         this.startService = startService;
         this.queryService = queryService;
         this.owners = owners;
         this.messageService = messageService;
+        this.factsService = factsService;
     }
 
     /**
@@ -94,18 +102,27 @@ public class SolutionController {
     public ApiResponse<SolutionMessageResponse> message(@PathVariable("id") String id,
             Authentication authentication, HttpServletRequest request) throws HttpMediaTypeNotSupportedException {
         long solutionId = parseId(id);
-        SendSolutionMessageRequest input = SendSolutionMessageRequest.from(messageBody(request));
+        SendSolutionMessageRequest input = SendSolutionMessageRequest.from(strictBody(request));
         return ApiResponse.ok(messageService.send(solutionId, input, () -> owners.findExisting(authentication, request)));
     }
 
-    private static JsonNode messageBody(HttpServletRequest request) throws HttpMediaTypeNotSupportedException {
+    /** SOL-04: SOL-03과 같은 CSRF → ID → JSON 본문 → 소유권 순서. 응답 모양도 SOL-03과 같아요. */
+    @PatchMapping("/sessions/{id}/facts")
+    public ApiResponse<SolutionMessageResponse> updateFacts(@PathVariable("id") String id,
+            Authentication authentication, HttpServletRequest request) throws HttpMediaTypeNotSupportedException {
+        long solutionId = parseId(id);
+        UpdateSolutionFactsRequest input = UpdateSolutionFactsRequest.from(strictBody(request));
+        return ApiResponse.ok(factsService.update(solutionId, input, () -> owners.findExisting(authentication, request)));
+    }
+
+    private static JsonNode strictBody(HttpServletRequest request) throws HttpMediaTypeNotSupportedException {
         byte[] bytes;
         try {
-            bytes = request.getInputStream().readNBytes(MAX_MESSAGE_BODY_BYTES + 1);
+            bytes = request.getInputStream().readNBytes(MAX_BODY_BYTES + 1);
         } catch (IOException e) {
             throw new ApiException(ErrorCode.INVALID_REQUEST);
         }
-        if (bytes.length == 0 || bytes.length > MAX_MESSAGE_BODY_BYTES) throw new ApiException(ErrorCode.INVALID_REQUEST);
+        if (bytes.length == 0 || bytes.length > MAX_BODY_BYTES) throw new ApiException(ErrorCode.INVALID_REQUEST);
         MediaType type;
         try {
             if (request.getContentType() == null) throw new HttpMediaTypeNotSupportedException("application/json is required");
@@ -117,7 +134,7 @@ public class SolutionController {
             throw new HttpMediaTypeNotSupportedException(type, java.util.List.of(MediaType.APPLICATION_JSON));
         }
         try {
-            return MESSAGE_JSON.readTree(bytes);
+            return STRICT_JSON.readTree(bytes);
         } catch (JacksonException e) {
             throw new ApiException(ErrorCode.INVALID_REQUEST);
         }

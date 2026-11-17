@@ -80,6 +80,17 @@ public final class SolutionFacts {
 
     public record Merge(SolutionFacts facts, int conflictCount) {}
 
+    /** SOL-04 사용자 직접 정정. 기존 YES/NO도 바꿀 수 있고, 없는 키는 유지해요. AI 병합 보호 규칙과 별개예요. */
+    public SolutionFacts withChanges(Map<SolutionFact, FactValue> changes) {
+        if (changes == null || changes.isEmpty()) throw new IllegalArgumentException("수정할 사실이 필요해요.");
+        var updated = new EnumMap<>(values);
+        changes.forEach((fact, value) -> {
+            if (fact == null || value == null) throw new IllegalArgumentException("수정할 사실이 올바르지 않아요.");
+            updated.put(fact, value);
+        });
+        return new SolutionFacts(updated);
+    }
+
     /** 질문 순서상 첫 UNKNOWN. 모두 확정이면 비어 있어요. */
     public Optional<SolutionFact> firstUnknown() {
         for (SolutionFact fact : SolutionFact.values()) {

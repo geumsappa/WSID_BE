@@ -219,6 +219,44 @@ class SolutionIntegrationTest {
         assertEquals(404, send(message(id, fresh, first)).statusCode());
     }
 
+    @Test
+    void anonymousFactCorrectionPersistsAndEmptyCatalogCardCaseRollsBack() throws Exception {
+        var browser = csrf(null);
+        long id = track(json.readTree(send(start(browser.cookie, browser, null)).body()).path("data").path("solutionId").asLong());
+        String body = UpdateSolutionFactsRequestTest.body(0, "transferredMoney", "NO", "sharedInformation", "UNKNOWN").toString();
+        var response = send(facts(id, browser, body));
+        assertEquals(200, response.statusCode(), response.body());
+        assertTrue(response.headers().firstValue("Cache-Control").orElse("").contains("no-store"));
+        JsonNode data = json.readTree(response.body()).path("data");
+        assertEquals(1, data.path("stateVersion").asInt());
+        assertEquals("installedApp", data.path("nextQuestion").path("factKey").asString(), "UNKNOWN으로 고친 항목은 다시 묻지 않아요.");
+        assertEquals(0, data.path("responseCards").size());
+        var restored = json.readTree(get("/api/solutions/sessions/" + id, browser.cookie).body()).path("data");
+        assertEquals(data.path("facts"), restored.path("facts"));
+        assertEquals(data.path("nextQuestion"), restored.path("nextQuestion"));
+        assertTrue(restored.path("messages").get(2).path("content").asString().startsWith("사실 수정: "));
+        // 운영 기본 카탈로그는 비어 있어서 카드가 필요한 정정은 503이고 아무것도 바뀌지 않아요.
+        var needsCard = send(facts(id, browser, UpdateSolutionFactsRequestTest.body(1, "installedApp", "YES").toString()));
+        assertEquals(503, needsCard.statusCode()); assertEquals("RESPONSE_CONTENT_UNAVAILABLE", json.readTree(needsCard.body()).path("code").asString());
+        var stale = send(facts(id, browser, body));
+        assertEquals(409, stale.statusCode()); assertEquals("STATE_VERSION_CONFLICT", json.readTree(stale.body()).path("code").asString());
+        assertEquals(404, send(facts(id, csrf(null), UpdateSolutionFactsRequestTest.body(1, "installedApp", "NO").toString())).statusCode());
+        var noToken = request("/api/solutions/sessions/" + id + "/facts", browser.cookie).header("Content-Type", "application/json")
+                .method("PATCH", HttpRequest.BodyPublishers.ofString(body)).build();
+        assertEquals(403, send(noToken).statusCode());
+        assertEquals(1, jdbc.queryForObject("SELECT state_version FROM solution_sessions WHERE id = ?", Integer.class, id));
+        assertEquals(5, jdbc.queryForObject("SELECT count(*) FROM solution_messages WHERE solution_id = ?", Integer.class, id));
+        // 고친 버전으로 SOL-03 선택이 이어져요.
+        var next = send(message(id, browser, SendSolutionMessageRequestTest.choice(UUID.randomUUID(), 1, "installedApp", "NO").toString()));
+        assertEquals(200, next.statusCode(), next.body());
+        assertEquals("contactContinues", json.readTree(next.body()).path("data").path("nextQuestion").path("factKey").asString());
+    }
+
+    private HttpRequest facts(long id, Csrf csrf, String body) {
+        return request("/api/solutions/sessions/" + id + "/facts", csrf.cookie).header(csrf.header, csrf.token)
+                .header("Content-Type", "application/json").method("PATCH", HttpRequest.BodyPublishers.ofString(body)).build();
+    }
+
     private HttpRequest message(long id, Csrf csrf, String body) {
         return request("/api/solutions/sessions/" + id + "/messages", csrf.cookie).header(csrf.header, csrf.token)
                 .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body)).build();

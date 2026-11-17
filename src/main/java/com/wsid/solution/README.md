@@ -27,7 +27,7 @@
 | SOL-01 | POST | `/api/solutions/sessions` | 불필요 (비회원 상담 소유권 확인 필요) | 구현([보고서](../../../../../../docs/sol-01-session-start.md)) |
 | SOL-02 | GET | `/api/solutions/sessions/{id}` | 불필요 (비회원 상담 소유권 확인 필요) | 구현([보고서](../../../../../../docs/sol-02-session-get.md)) |
 | SOL-03 | POST | `/api/solutions/sessions/{id}/messages` | 불필요 (비회원 상담 소유권 확인 필요) | 구현([보고서](../../../../../../docs/sol-03-session-message.md)) |
-| SOL-04 | PATCH | `/api/solutions/sessions/{id}/facts` | 불필요 (비회원 상담 소유권 확인 필요) | factsJson 컬럼만; 병합·재판정·API 없음 |
+| SOL-04 | PATCH | `/api/solutions/sessions/{id}/facts` | 불필요 (비회원 상담 소유권 확인 필요) | 구현([보고서](../../../../../../docs/sol-04-facts-update.md)) |
 | SOL-05 | POST | `/api/solutions/sessions/{id}/complete` | 불필요 (비회원 상담 소유권 확인 필요) | completedAt 컬럼만; 종료 메서드·API 없음 |
 
 소유자는 `SolutionOwnerResolver`가 정해요. 회원은 로그인 principal, 비회원은 HTTP 세션에 발급한 익명 UUID(`anonymous_owner_id`, V3)예요. 비회원은 `GET /api/solutions/csrf`로 세션·토큰을 받은 뒤 같은 쿠키와 `X-CSRF-TOKEN`으로 요청해요. 보안 규칙은 AUTH의 `SecurityConfig`가 아니라 `security/SolutionSecurityConfig`(`/api/solutions/**` 전용 체인)에 있어요. 조회는 `SolutionOwnerResolver.findExisting`(새 세션·UUID를 만들지 않음)과 `SolutionSessionRepository.findOwned`로만 하고, 상담 ID만 받아 타인 상담을 조회하게 만들지 않아요.
@@ -42,7 +42,7 @@
 training 패키지와 같은 모양으로 만들어요.
 
 1. **domain 규칙부터**: 사실을 값 객체로 만들어요. 항목은 송금, 정보 제공, 앱 설치, 연락 지속이고 값은 예·아니오·모름이에요.
-   현재 `SolutionFacts.withChoice/mergeExtracted`와 `ResponseRules`가 선택·AI 병합·카드 규칙을 맡아요. SOL-04 직접 정정은 기존 확정값을 바꿀 수 있도록 별도 정책으로 확장해요.
+   현재 `SolutionFacts.withChoice/mergeExtracted`와 `ResponseRules`가 선택·AI 병합·카드 규칙을 맡아요. SOL-04 직접 정정은 `SolutionFacts.withChanges`로 기존 확정값도 바꿔요(AI 병합 보호와 별개).
 2. **단위 테스트**: "보냈다", "보내려다 멈췄다", "송금을 언급하지 않았다"가 구분되는지, 긴급 카드가 맨 앞에 오는지, 모름일 때 더 안전한 쪽 안내가 나오는지 검증해요.
 3. **AI 연결**: 구현된 `AiClient.extractSolutionFacts`에 새 설명과 현재 사실 Map을 전달해요. 개인정보 최소 처리 후 호출하고 실패하면 기존 사실을 유지하며 직접 선택하게 해요. 선택으로 확인한 사실도 같은 도메인 규칙에 넣어요. AI의 UNKNOWN이나 충돌하는 제안으로 사용자 확정값을 조용히 덮어쓰지 않아요.
 4. **service**: 상담 소유자 확인 → 읽기 → AI 호출(트랜잭션 밖) → 사실 합치기 → 규칙 적용 → 저장. 시작 요청에 설명이 있으면 바로 AI-06으로 사실을 추출해요. `content`에서 카드 내용을 가져와 응답을 만들어요.
@@ -62,7 +62,7 @@ AI-07은 [구현 보고서](../../../../../../docs/ai-07-solution-explain.md)의
 
 ## 정할 것
 
-- 실제 운영 카드 카탈로그·질문 문구 검토, SOL-04 정정 시 UNKNOWN 건너뛰기 이력 정책
+- 실제 운영 카드 카탈로그·질문 문구 검토, UNKNOWN 정정을 "다시 질문"으로 바꿀지(현재는 SOL-04 정정 기록도 답변 완료로 읽음)
 - 훈련 중 실제 피해를 밝혔을 때 어느 훈련에서 넘어왔는지 연결할 컬럼
 - 근거 문단의 화면 표시 여부와 공개 API 필드
 

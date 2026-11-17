@@ -69,7 +69,8 @@ class SolutionWebSecurityTest {
     @EnableWebSecurity
     @Import({SecurityConfig.class, SolutionSecurityConfig.class, GlobalExceptionHandler.class, LoginController.class,
             SolutionController.class, SolutionOwnerResolver.class, AnonymousOwnerIssuer.class,
-            SensitiveDescriptionGuard.class, StartSolutionService.class, SolutionQueryService.class, SendSolutionMessageService.class})
+            SensitiveDescriptionGuard.class, StartSolutionService.class, SolutionQueryService.class, SendSolutionMessageService.class,
+            com.wsid.solution.service.UpdateSolutionFactsService.class})
     static class WebConfiguration {
         @Bean static ConversionService conversionService() { return ApplicationConversionService.getSharedInstance(); }
         @Bean AiClient aiClient() { return mock(AiClient.class); }
@@ -437,5 +438,67 @@ class SolutionWebSecurityTest {
                 .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("비공개"))));
         assertEquals(2, savedMessages.size());
         assertEquals(0, stored.getFirst().getStateVersion());
+    }
+
+    private MockHttpServletRequestBuilder facts(MockHttpSession session, String[] token, String id, String body) {
+        var request = patch("/api/solutions/sessions/" + id + "/facts").session(session)
+                .contentType(MediaType.APPLICATION_JSON).content(body);
+        return token == null ? request : request.header(token[0], token[1]);
+    }
+
+    @Test void anonymousFactCorrectionReturnsSol03ShapeAndRestoresCorrectionRecord() throws Exception {
+        var browser = new MockHttpSession(); var token = csrf(browser);
+        mvc.perform(start(browser, token)).andExpect(status().isCreated());
+        String body = UpdateSolutionFactsRequestTest.body(0, "transferredMoney", "YES", "installedApp", "YES").toString();
+        mvc.perform(facts(browser, token, "301", body)).andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")))
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.stateVersion").value(1))
+                .andExpect(jsonPath("$.data.facts.installedApp").value("YES"))
+                .andExpect(jsonPath("$.data.responseCards.length()").value(2))
+                .andExpect(jsonPath("$.data.responseCards[0].code").value("TRANSFER_RESPONSE"))
+                .andExpect(jsonPath("$.data.responseCards[1].title").value("악성 앱 대응"))
+                .andExpect(jsonPath("$.data.nextQuestion.factKey").value("sharedInformation"));
+        mvc.perform(get("/api/solutions/sessions/301").session(browser)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.stateVersion").value(1))
+                .andExpect(jsonPath("$.data.messages[2].inputKind").value("CHOICE"))
+                .andExpect(jsonPath("$.data.messages[2].selectedCode").value("YES"))
+                .andExpect(jsonPath("$.data.messages[2].content").value(org.hamcrest.Matchers.startsWith("사실 수정: ")));
+        mvc.perform(facts(browser, token, "301", body)).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("STATE_VERSION_CONFLICT"));
+        verifyNoInteractions(ai);
+    }
+
+    @Test void factValidationOrderIsCsrfThenIdThenBodyThenOwnership() throws Exception {
+        var browser = new MockHttpSession(); var token = csrf(browser);
+        String valid = UpdateSolutionFactsRequestTest.body(0, "installedApp", "NO").toString();
+        mvc.perform(facts(browser, null, "301", valid)).andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("CSRF_TOKEN_INVALID"));
+        mvc.perform(facts(browser, token, "abc", "{")).andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("SOLUTION_NOT_FOUND"));
+        mvc.perform(facts(browser, token, "301", "{")).andExpect(status().isBadRequest());
+        mvc.perform(facts(browser, token, "301", valid + " {}")).andExpect(status().isBadRequest());
+        mvc.perform(facts(browser, token, "301", "{\"stateVersion\":0,\"changes\":{}}")).andExpect(status().isBadRequest());
+        mvc.perform(facts(browser, token, "301", valid).contentType(MediaType.TEXT_PLAIN)).andExpect(status().isUnsupportedMediaType());
+        mvc.perform(facts(browser, token, "301", valid)).andExpect(status().isNotFound());
+        verifyNoInteractions(sessions);
+        mvc.perform(start(browser, token)).andExpect(status().isCreated());
+        var stranger = new MockHttpSession(); var strangerToken = csrf(stranger);
+        mvc.perform(facts(stranger, strangerToken, "301", valid)).andExpect(status().isNotFound());
+        mvc.perform(facts(browser, strangerToken, "301", valid)).andExpect(status().isForbidden());
+        assertEquals(0, stored.getFirst().getStateVersion());
+    }
+
+    @Test void duplicateJsonKeysAreRejectedForFactsAndMessages() throws Exception {
+        var browser = new MockHttpSession(); var token = csrf(browser);
+        mvc.perform(start(browser, token)).andExpect(status().isCreated());
+        mvc.perform(facts(browser, token, "301",
+                "{\"stateVersion\":0,\"changes\":{\"installedApp\":\"YES\",\"installedApp\":\"NO\"}}"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        String choice = SendSolutionMessageRequestTest.choice(java.util.UUID.randomUUID(), 0, "transferredMoney", "NO").toString();
+        mvc.perform(message(browser, token, "301", choice.replace("{", "{\"stateVersion\":5,")))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        assertEquals(0, stored.getFirst().getStateVersion());
+        assertEquals(2, savedMessages.size());
     }
 }

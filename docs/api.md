@@ -91,7 +91,7 @@ TRN-11이 완료되면 리포트를 만들어요. 기본 모드는 규칙 기반
 | SOL-01 | POST | `/api/solutions/sessions` | 불필요 (비회원 상담 소유권 확인 필요) | 구현: 회원/비회원 소유자·CSRF·민감정보 거부·AI-06 추출·질문·카드 규칙. 운영 카드 콘텐츠 없음([보고서](sol-01-session-start.md)) |
 | SOL-02 | GET | `/api/solutions/sessions/{id}` | 불필요 (비회원 상담 소유권 확인 필요) | 구현: 조회 전용 소유권 확인·같은 404·현재 검토 카드·메시지 기록([보고서](sol-02-session-get.md)) |
 | SOL-03 | POST | `/api/solutions/sessions/{id}/messages` | 불필요 (비회원 상담 소유권 확인 필요) | 구현: TEXT AI-06·CHOICE·확정값 보호·UNKNOWN 질문 진행·소유권/CSRF·CAS/중복/버전. 운영 카드/FastAPI 별도([보고서](sol-03-session-message.md)) |
-| SOL-04 | PATCH | `/api/solutions/sessions/{id}/facts` | 불필요 (비회원 상담 소유권 확인 필요) | factsJson 컬럼만; 병합·재판정·API 없음 |
+| SOL-04 | PATCH | `/api/solutions/sessions/{id}/facts` | 불필요 (비회원 상담 소유권 확인 필요) | 구현: 직접 정정·전체 카드/다음 질문 재계산·SOL-03과 같은 응답·UNKNOWN 정정 이력·CAS/버전. 운영 카드 별도([보고서](sol-04-facts-update.md)) |
 | SOL-05 | POST | `/api/solutions/sessions/{id}/complete` | 불필요 (비회원 상담 소유권 확인 필요) | completedAt 컬럼만; 종료 메서드·API 없음 |
 
 ## 훈련
