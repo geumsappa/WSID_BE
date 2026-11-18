@@ -163,8 +163,7 @@ public class TrainingWorkflow {
             raw = result.path("scenario");
             template = result.path("mockPageTemplateCode").asString("");
         }
-        if (!raw.isObject()) throw error(ErrorCode.AI_SERVICE_UNAVAILABLE);
-        safeGenerated(raw.toString(), 16000);
+        validateScenarioContent(raw);
         var summary = summary(raw);
         String templateCode = BANK_NOTICE.templateCode().equals(template) ? template : null;
         return write(id, owner, request, TrainingPhase.DISCOVERY, locked -> {
@@ -199,7 +198,7 @@ public class TrainingWorkflow {
                 || (request.inputKind() == TrainingRequests.MessageKind.TEXT && request.selectedCode() != null)) {
             throw error(ErrorCode.INVALID_REQUEST);
         }
-        String content = safeInput(choice != null ? choice.label() : request.content());
+        String content = simulationInput(choice != null ? choice.label() : request.content());
         int count = session.getSimulationTurnCount() + 1;
         boolean keyScene = !session.isKeySceneShown() && count >= rules.keySceneDeadlineTurn();
         var result = suggest(session, content, count, choice);
@@ -389,6 +388,17 @@ public class TrainingWorkflow {
         return session.getScenarioJson() == null ? json.createObjectNode() : json.readTree(session.getScenarioJson());
     }
 
+    static void validateScenarioContent(JsonNode scenario) {
+        if (!scenario.isObject() || scenario.toString().length() > 16000) {
+            throw error(ErrorCode.AI_SERVICE_UNAVAILABLE);
+        }
+        ObjectNode content = ((ObjectNode) scenario).deepCopy();
+        // FastAPI resolves these references from its case catalog, not from model-written dialogue.
+        // Their source URLs and publication dates are metadata, not simulated phishing links or account numbers.
+        content.remove("basedOnCases");
+        safeGenerated(content.toString(), 16000);
+    }
+
     static TrainingResponses.ScenarioSummary summary(JsonNode scenario) {
         return new TrainingResponses.ScenarioSummary(safeGenerated(scenario.path("title").asString(), 200),
                 safeGenerated(scenario.path("description").asString(), 1000));
@@ -416,6 +426,20 @@ public class TrainingWorkflow {
         if (text == null || text.isBlank()) throw error(ErrorCode.INVALID_REQUEST);
         if (SENSITIVE.matcher(text).find() || LIVE_LINK.matcher(text).find()) throw error(ErrorCode.SENSITIVE_DATA_DETECTED);
         return text.strip();
+    }
+
+    static String simulationInput(String text) {
+        if (text == null || text.isBlank() || text.length() > 1000) throw error(ErrorCode.INVALID_REQUEST);
+        if (LIVE_LINK.matcher(text).find()) throw error(ErrorCode.SENSITIVE_DATA_DETECTED);
+        // Accept disclosure during simulation, but send/store only type markers, never the submitted values.
+        text = text.replaceAll("(?<!\\d)\\d{6}[- ]?[1-8]\\d{6}(?!\\d)", "[주민등록번호]")
+                .replaceAll("(?<!\\d)(?:\\d{4}[ -]?){3}\\d{4}(?!\\d)", "[카드번호]")
+                .replaceAll("(?<!\\d)0\\d{1,2}[- .]?\\d{3,4}[- .]?\\d{4}(?!\\d)", "[전화번호]")
+                .replaceAll("[\\w.+-]+@[\\w.-]+\\.[A-Za-z]{2,}", "[이메일]")
+                .replaceAll("(?i)(?:비밀번호|비번|패스워드|password|pw|PIN)\\s*(?:[:=]|은|는)\\s*\\S+", "[비밀번호]")
+                .replaceAll("(?i)(?:인증번호|OTP|CVC|CVV)\\s*(?:[:=]|은|는)?\\s*\\d{3,8}", "[인증정보]")
+                .replaceAll("(?<!\\d)\\d{2,6}-\\d{2,6}-\\d{2,8}(?!\\d)|(?<!\\d)(?:\\d[ -]?){9,18}\\d(?!\\d)", "[계좌번호]");
+        return SENSITIVE.matcher(text).replaceAll("[민감정보]").strip();
     }
 
     private static String safeGenerated(String text, int limit) {
