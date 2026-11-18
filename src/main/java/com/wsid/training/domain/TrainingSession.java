@@ -151,6 +151,13 @@ public class TrainingSession {
     }
 
     public String getContextFactsJson() { return contextFacts; }
+    public void recordScenarioProgress(String scenario) {
+        if (phase != TrainingPhase.SIMULATION || status != TrainingStatus.ACTIVE || scenarioJson == null) {
+            throw new IllegalStateException("진행 중인 훈련에서만 장면을 갱신할 수 있어요.");
+        }
+        scenarioJson = scenario;
+    }
+
     public String getScenarioJson() { return scenarioJson; }
     public String getMockPageTemplateCode() { return mockPageTemplateCode; }
 

@@ -26,7 +26,7 @@ public final class TrainingResponses {
     }
     public record Detail(long trainingId, String phase, TrainingStatus status, int stateVersion, int turnCount,
             List<HistoryMessage> messages, JsonNode availableOptions, MockPage mockPage, ScenarioSummary scenario,
-            boolean canGenerateScenario, boolean shouldFinish) {}
+            boolean canGenerateScenario, boolean shouldFinish, boolean mockPageSubmitted) {}
     public record MockAttachment(String type, String title) {}
     public record Option(String code, String label, MockAttachment mockAttachment) {
         public Option(String code, String label) { this(code, label, null); }
@@ -34,12 +34,17 @@ public final class TrainingResponses {
     public record Reply(MessageSender sender, String content, List<Option> options) {}
     public record Discovery(FirstMessage reply, int discoveryTurnCount, boolean canGenerateScenario, int stateVersion) {}
     public record Ocr(String recognizedText, boolean usable) {}
-    public record ScenarioSummary(String title, String description) {}
+    public record ScenarioSummary(String title, String description, String senderName, String organizationName) {
+        public ScenarioSummary(String title, String description) { this(title, description, null, null); }
+    }
     public record Scenario(long trainingId, String phase, String fraudTypeCode, ScenarioSummary scenario,
             String mockPageTemplateCode, int stateVersion) {}
-    public record Started(String phase, FirstMessage firstMessage, int stateVersion, List<Option> availableOptions) {
+    public record Started(String phase, FirstMessage firstMessage, int stateVersion, List<Option> availableOptions, MockPage mockPage) {
         public Started(String phase, FirstMessage firstMessage, int stateVersion) {
-            this(phase, firstMessage, stateVersion, List.of());
+            this(phase, firstMessage, stateVersion, List.of(), null);
+        }
+        public Started(String phase, FirstMessage firstMessage, int stateVersion, List<Option> availableOptions) {
+            this(phase, firstMessage, stateVersion, availableOptions, null);
         }
     }
     public record Message(Reply reply, List<String> recognizedActions, int turnCount, boolean shouldFinish,

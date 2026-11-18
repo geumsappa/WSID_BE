@@ -76,8 +76,8 @@ wsid:
     api-key: ${AI_API_KEY:local-dev-key}
     connect-timeout: 2s
     read-timeout: 20s          # 훈련 턴 전체 25초(제안값) 안에 대체 문구로 넘어가도록
-    scenario-read-timeout: ${AI_SCENARIO_READ_TIMEOUT:20s} # AI-03만 별도 조정. 운영 값은 AI 서비스와 합의
-    evaluation-read-timeout: ${AI_EVALUATION_READ_TIMEOUT:20s} # AI-05 평가만 별도 조정
+    scenario-read-timeout: ${AI_SCENARIO_READ_TIMEOUT:60s} # AI-03만 별도 조정. 운영 값은 AI 서비스와 합의
+    evaluation-read-timeout: ${AI_EVALUATION_READ_TIMEOUT:40s} # AI-05 평가만 별도 조정
   training:
     key-scene-deadline-turn: 12
     max-simulation-turns: 15
