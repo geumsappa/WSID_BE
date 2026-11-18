@@ -67,6 +67,45 @@ class HttpAiClientSolutionExtractTest {
         assertFalse(serialized.contains("description"));
     }
 
+    @Test
+    void acceptsUnwrappedResultWithExtraFraudTypeLikeFastApi() {
+        // WSID_AI OHC의 /extract는 봉투 없이 결과만 보내고 fraudType을 덧붙여요.
+        server.expect(anything()).andRespond(withSuccess("""
+                {"facts":{"transferredMoney":"YES","contactContinues":"NO","sharedInformation":"UNKNOWN",
+                "installedApp":"UNKNOWN"},"uncertainFields":["sharedInformation","installedApp"],"fraudType":"SMISHING"}""",
+                MediaType.APPLICATION_JSON));
+        var result = client.extractSolutionFacts(request);
+        assertEquals("YES", result.facts().get("transferredMoney"));
+        assertEquals(List.of("sharedInformation", "installedApp"), result.uncertainFields());
+        assertFalse(new ObjectMapper().writeValueAsString(result).contains("fraudType"));
+        server.verify();
+    }
+
+    static Stream<String> invalidUnwrappedBodies() {
+        return Stream.of(
+                // 결과 필드가 최상위에 없으면 실패해요.
+                "{\"data\":{\"facts\":{}}}", "{\"uncertainFields\":[]}", "{\"error\":{\"code\":\"X\"}}",
+                // 봉투가 없어도 내용 검사는 그대로 엄격해요.
+                "{\"facts\":null,\"uncertainFields\":[]}",
+                "{\"facts\":{\"transferredMoney\":\"YES\"},\"uncertainFields\":[]}",
+                "{\"facts\":{\"transferredMoney\":\"MAYBE\",\"contactContinues\":\"NO\",\"sharedInformation\":\"NO\","
+                        + "\"installedApp\":\"NO\"},\"uncertainFields\":[]}",
+                "{\"facts\":{\"transferredMoney\":\"YES\",\"contactContinues\":\"NO\",\"sharedInformation\":\"NO\","
+                        + "\"installedApp\":\"NO\"},\"uncertainFields\":\"x\"}",
+                // success 키가 있으면 봉투로 보고 엄격하게 검사해요.
+                "{\"success\":false,\"facts\":{\"transferredMoney\":\"YES\",\"contactContinues\":\"NO\","
+                        + "\"sharedInformation\":\"NO\",\"installedApp\":\"NO\"},\"uncertainFields\":[]}");
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidUnwrappedBodies")
+    void unwrappedResultStillGetsStrictContentChecks(String body) {
+        server.expect(anything()).andRespond(withSuccess(body, MediaType.APPLICATION_JSON));
+        var error = assertThrows(AiUnavailableException.class, () -> client.extractSolutionFacts(request));
+        assertNull(error.getCause());
+        server.verify();
+    }
+
     static Stream<String> invalidBodies() {
         var base = new ObjectMapper().readTree(RESPONSE);
         Stream<String> envelope = Stream.of("", "{", "null", "[]", "{}", "{\"success\":true}",

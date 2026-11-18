@@ -8,6 +8,8 @@ import java.time.Instant;
 public interface SolutionSessionUpdates {
     int compareAndSet(long id, SolutionOwner owner, int expectedVersion, SolutionSession.Update update);
 
+    int compareAndSetAssist(long id, SolutionOwner owner, int expectedVersion, SolutionSession.Update update, String pendingJson);
+
     /** 기대 버전 입력 없이 ACTIVE만 한 번 종료. 기존 사실·카드·메시지는 보존해요. */
     int completeActive(long id, SolutionOwner owner, Instant now);
 }

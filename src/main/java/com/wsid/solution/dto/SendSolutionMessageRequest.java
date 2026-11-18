@@ -15,6 +15,9 @@ public final class SendSolutionMessageRequest {
             "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
     private static final Set<String> TEXT_KEYS = Set.of("requestId", "stateVersion", "inputKind", "content");
     private static final Set<String> CHOICE_KEYS = Set.of("requestId", "stateVersion", "inputKind", "factKey", "selectedCode");
+    public enum Purpose { FACT_UPDATE, QUESTION, CLARIFICATION_ANSWER }
+    private Purpose purpose = Purpose.FACT_UPDATE;
+    private UUID questionId;
     private final UUID requestId;
     private final int stateVersion;
     private final String content;
@@ -32,6 +35,37 @@ public final class SendSolutionMessageRequest {
 
     public static SendSolutionMessageRequest from(JsonNode body) {
         if (body == null || !body.isObject()) throw invalid();
+        if (body.has("purpose")) {
+            Purpose purpose;
+            try { purpose = Purpose.valueOf(string(body, "purpose")); }
+            catch (IllegalArgumentException e) { throw invalid(); }
+            var copy = ((tools.jackson.databind.node.ObjectNode) body).deepCopy();
+            copy.remove("purpose");
+            if (purpose == Purpose.CLARIFICATION_ANSWER) {
+                if (!"CHOICE".equals(string(copy, "inputKind")) || copy.has("factKey")) throw invalid();
+                String questionId = string(copy, "questionId");
+                if (!UUID_TEXT.matcher(questionId).matches()) throw invalid();
+                if (copy.size() != 5) throw invalid();
+                for (String key : copy.propertyNames())
+                    if (!Set.of("requestId", "stateVersion", "inputKind", "questionId", "selectedCode").contains(key)) throw invalid();
+                String requestId = string(copy, "requestId");
+                if (!UUID_TEXT.matcher(requestId).matches()) throw invalid();
+                JsonNode version = copy.get("stateVersion");
+                if (version == null || !version.isIntegralNumber() || !version.canConvertToInt()
+                        || version.intValue() < 0 || version.intValue() == Integer.MAX_VALUE) throw invalid();
+                FactValue selected;
+                try { selected = FactValue.valueOf(string(copy, "selectedCode")); }
+                catch (IllegalArgumentException e) { throw invalid(); }
+                var result = new SendSolutionMessageRequest(UUID.fromString(requestId), version.intValue(), null, null, selected);
+                result.purpose = purpose;
+                result.questionId = UUID.fromString(questionId);
+                return result;
+            }
+            if (purpose == Purpose.QUESTION && !"TEXT".equals(string(copy, "inputKind"))) throw invalid();
+            var result = from(copy);
+            result.purpose = purpose;
+            return result;
+        }
         String id = string(body, "requestId");
         if (!UUID_TEXT.matcher(id).matches()) throw invalid();
         JsonNode version = body.get("stateVersion");
@@ -66,6 +100,8 @@ public final class SendSolutionMessageRequest {
 
     private static ApiException invalid() { return new ApiException(ErrorCode.INVALID_REQUEST); }
 
+    public Purpose purpose() { return purpose; }
+    public UUID questionId() { return questionId; }
     public UUID requestId() { return requestId; }
     public int stateVersion() { return stateVersion; }
     public boolean isText() { return content != null; }

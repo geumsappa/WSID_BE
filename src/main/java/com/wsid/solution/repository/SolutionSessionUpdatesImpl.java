@@ -19,14 +19,19 @@ public class SolutionSessionUpdatesImpl implements SolutionSessionUpdates {
 
     @Override
     public int compareAndSet(long id, SolutionOwner owner, int expectedVersion, SolutionSession.Update update) {
+        return compareAndSetAssist(id, owner, expectedVersion, update, null);
+    }
+
+    @Override
+    public int compareAndSetAssist(long id, SolutionOwner owner, int expectedVersion, SolutionSession.Update update, String pendingJson) {
         String ownerCondition = owner.isMember() ? "user_id = ?" : "anonymous_owner_id = ?";
         int rows = jdbc.update("""
                 UPDATE solution_sessions
                    SET facts_json = CAST(? AS jsonb), card_codes_json = CAST(? AS jsonb),
-                       next_question_json = CAST(? AS jsonb), updated_at = ?, state_version = state_version + 1
+                       next_question_json = CAST(? AS jsonb), pending_assist_json = CAST(? AS jsonb), updated_at = ?, state_version = state_version + 1
                  WHERE id = ? AND status = 'ACTIVE' AND state_version = ? AND
                 """ + ownerCondition,
-                update.factsJson(), update.cardsJson(), update.questionJson(), Timestamp.from(update.updatedAt()),
+                update.factsJson(), update.cardsJson(), update.questionJson(), pendingJson, Timestamp.from(update.updatedAt()),
                 id, expectedVersion, owner.isMember() ? owner.userId() : owner.anonymousId());
         // 전용 쓰기 트랜잭션에서 아직 메시지를 저장하기 전 호출해요. 변경 전 JPA 캐시를 버려요.
         entityManager.clear();
@@ -39,7 +44,7 @@ public class SolutionSessionUpdatesImpl implements SolutionSessionUpdates {
         int rows = jdbc.update("""
                 UPDATE solution_sessions
                    SET status = 'COMPLETED', completed_at = ?, updated_at = ?,
-                       state_version = state_version + 1, next_question_json = NULL
+                       state_version = state_version + 1, next_question_json = NULL, pending_assist_json = NULL
                  WHERE id = ? AND status = 'ACTIVE' AND
                 """ + ownerCondition,
                 Timestamp.from(now), Timestamp.from(now), id, owner.isMember() ? owner.userId() : owner.anonymousId());

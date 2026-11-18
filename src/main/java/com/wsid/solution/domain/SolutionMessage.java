@@ -40,6 +40,21 @@ public class SolutionMessage {
     @Column(name = "safe_content", columnDefinition = "text")
     private String safeContent;
 
+    @Column(name = "purpose", length = 32)
+    private String purpose;
+    @Column(name = "assist_question_id")
+    private UUID assistQuestionId;
+
+    public static SolutionMessage assist(long id, int sequence, String purpose, UUID questionId,
+            SolutionFact fact, FactValue selected, UUID requestId, java.util.List<String> references, Instant now) {
+        var m = fact == null ? of(id, MessageSender.USER, InputKind.TEXT, sequence, "질문을 접수했습니다.", requestId, now)
+                : choice(id, sequence, fact, selected, requestId, now);
+        m.purpose = purpose;
+        m.assistQuestionId = questionId;
+        m.referenceCodesJson = new tools.jackson.databind.ObjectMapper().writeValueAsString(references);
+        return m;
+    }
+
     /** 사용자가 고른 선택지 코드 */
     @Column(name = "selected_code", length = 100)
     private String selectedCode;

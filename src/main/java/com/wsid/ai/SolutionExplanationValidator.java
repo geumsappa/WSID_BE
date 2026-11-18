@@ -44,12 +44,15 @@ public final class SolutionExplanationValidator {
                 || (!allowed.isEmpty() && result.referenceCodes().isEmpty())) {
             throw new AiUnavailableException("AI-07 설명 근거가 요청과 일치하지 않아요.");
         }
-        // 검사할 때만 정규화해요. 반환 설명을 부분 삭제하거나 다시 쓰지 않아요.
-        String normalized = Normalizer.normalize(result.explanation(), Normalizer.Form.NFKC)
-                .replaceAll("\\p{Cf}", "");
-        if (FORBIDDEN.stream().anyMatch(pattern -> pattern.matcher(normalized).find())) {
+        if (containsForbiddenOutput(result.explanation())) {
             throw new AiUnavailableException("AI-07 설명에 허용되지 않은 출력이 있어요.");
         }
         return result;
+    }
+
+    /** 링크·이메일·HTML·흔한 전화 표기를 찾아요. 검사할 때만 정규화하고 원문을 부분 삭제하거나 다시 쓰지 않아요. */
+    static boolean containsForbiddenOutput(String text) {
+        String normalized = Normalizer.normalize(text, Normalizer.Form.NFKC).replaceAll("\\p{Cf}", "");
+        return FORBIDDEN.stream().anyMatch(pattern -> pattern.matcher(normalized).find());
     }
 }
