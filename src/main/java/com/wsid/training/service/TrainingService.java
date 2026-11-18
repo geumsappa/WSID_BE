@@ -122,20 +122,24 @@ public class TrainingService {
                 .filter(m -> m.getInputKind() != InputKind.ACTION).toList();
         var restored = history.stream().map(m -> new TrainingResponses.HistoryMessage(
                 m.getId(), m.getSender(), m.getInputKind() == InputKind.OPTION ? "CHOICE" : m.getInputKind().name(),
-                m.getContent(), TrainingResponses.phase(m.getPhase()))).toList();
+                m.getContent(), TrainingResponses.phase(m.getPhase()),
+                MockPhoto.fromCode(m.getActionCode()) == null ? null : MockPhoto.fromCode(m.getActionCode()).attachment())).toList();
         var last = history.isEmpty() ? null : history.getLast();
         var options = session.getStatus() == TrainingStatus.ACTIVE && last != null
                 && last.getSender() == MessageSender.AI && last.getOptionsJson() != null
                 ? json.readTree(last.getOptionsJson()) : json.createArrayNode();
         var scenario = session.getScenarioJson() == null ? null
                 : TrainingWorkflow.summary(json.readTree(session.getScenarioJson()));
-        var page = session.getPhase() == TrainingPhase.SIMULATION && session.isKeySceneShown()
+        var page = session.getPhase() == TrainingPhase.SIMULATION && (session.isKeySceneShown()
+                || history.stream().anyMatch(message -> message.getSender() == MessageSender.AI
+                    && message.getPhase() == TrainingPhase.SIMULATION && TrainingWorkflow.containsMockLink(message.getContent())))
                 ? TrainingWorkflow.availablePage(session) : null;
         boolean ready = session.getPhase() == TrainingPhase.DISCOVERY && session.getContextFactsJson() != null
                 && json.readTree(session.getContextFactsJson()).path("canGenerateScenario").asBoolean();
         return new TrainingResponses.Detail(id, TrainingResponses.phase(session.getPhase()), session.getStatus(),
                 session.getStateVersion(), session.getSimulationTurnCount(), restored, options, page, scenario,
-                ready, session.isFinishSuggested());
+                ready, session.isFinishSuggested(), messages.findByTrainingIdOrderBySequenceNoAsc(id).stream()
+                    .anyMatch(message -> message.getInputKind() == InputKind.ACTION && "MOCK_LOGIN_ATTEMPT".equals(message.getActionCode())));
     }
 
     private Optional<TrainingSession> activeSession() {
