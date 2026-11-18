@@ -9,6 +9,7 @@ import com.wsid.common.error.ErrorCode;
 import com.wsid.report.domain.ReportEvaluation;
 import com.wsid.report.service.ReportService;
 import com.wsid.training.domain.TrainingMessage;
+import com.wsid.training.domain.MockPhoto;
 import com.wsid.training.domain.TrainingPhase;
 import com.wsid.training.domain.TrainingRules;
 import com.wsid.training.domain.TrainingSession;
@@ -180,10 +181,11 @@ public class TrainingWorkflow {
             Instant now = Instant.now();
             session.startPreparedScenario(rules, now);
             var message = TrainingMessage.fromAi(id, TrainingPhase.SIMULATION, nextSequence(id), opening, now);
-            message.recordOptions(json.writeValueAsString(SAFE_OPTIONS));
+            var options = optionsFor(opening);
+            message.recordOptions(json.writeValueAsString(options));
             messages.save(message);
             sessions.flush();
-            return new TrainingResponses.Started("SIMULATION", first(opening), session.getStateVersion());
+            return new TrainingResponses.Started("SIMULATION", first(opening), session.getStateVersion(), options);
         });
     }
 
@@ -198,10 +200,13 @@ public class TrainingWorkflow {
                 || (request.inputKind() == TrainingRequests.MessageKind.TEXT && request.selectedCode() != null)) {
             throw error(ErrorCode.INVALID_REQUEST);
         }
-        String content = simulationInput(choice != null ? choice.label() : request.content());
+        var photo = choice == null ? null : MockPhoto.fromCode(choice.code());
+        String content = photo != null ? photo.eventText()
+                : simulationInput(choice != null ? choice.label() : request.content());
         int count = session.getSimulationTurnCount() + 1;
         boolean keyScene = !session.isKeySceneShown() && count >= rules.keySceneDeadlineTurn();
-        var result = suggest(session, content, count, choice);
+        var suggestion = suggest(session, content, count, choice);
+        var result = photo == null ? suggestion : photoDisclosure(suggestion, photo);
         boolean finish = result.shouldFinish() || count >= rules.maxSimulationTurns();
         var page = availablePage(session);
         boolean showPage = page != null && !session.isKeySceneShown() && (result.showPage() || keyScene) && !finish;
@@ -209,7 +214,7 @@ public class TrainingWorkflow {
         String reply = finish ? ReviewedTexts.FINISHED
                 : keyScene ? "거래 내용을 다시 확인해 주세요. 훈련용 확인 화면에서 의심스러운 점을 살펴볼 수 있어요."
                 : result.reply();
-        var options = finish ? List.<TrainingResponses.Option>of() : SAFE_OPTIONS;
+        var options = finish ? List.<TrainingResponses.Option>of() : optionsFor(reply);
         return write(id, owner, request, TrainingPhase.SIMULATION, locked -> {
             Instant now = Instant.now();
             int sequence = nextSequence(id);
@@ -255,7 +260,8 @@ public class TrainingWorkflow {
         if (session.getStatus() == TrainingStatus.COMPLETED) return finished(id, reports.existingReportId(id));
         check(session, request, TrainingPhase.SIMULATION);
         var events = messages.findByTrainingIdOrderBySequenceNoAsc(id).stream()
-                .filter(m -> m.getInputKind() == InputKind.ACTION).map(TrainingMessage::getActionCode).toList();
+                .filter(m -> m.getInputKind() == InputKind.ACTION || MockPhoto.fromCode(m.getActionCode()) != null)
+                .map(TrainingMessage::getActionCode).toList();
         ReportEvaluation evaluation = ai.isMock() ? null : evaluate(id, session, events);
         return transaction.execute(status -> {
             var locked = sessions.lockOwned(id, owner).orElseThrow(() -> error(ErrorCode.TRAINING_NOT_FOUND));
@@ -267,7 +273,8 @@ public class TrainingWorkflow {
                     || messages.findByTrainingIdOrderBySequenceNoAsc(id).stream()
                         .anyMatch(m -> m.getTurnEvaluationJson() != null
                                 && m.getTurnEvaluationJson().contains("\"OFFICIAL_CHANNEL_CHECK\""));
-            long reportId = evaluation != null ? reports.recordEvaluation(locked, evaluation, now)
+            var checkedEvaluation = photoFeedback(evaluation, events, verified);
+            long reportId = checkedEvaluation != null ? reports.recordEvaluation(locked, checkedEvaluation, now)
                     : reports.recordCompletion(locked, verified,
                         new ReportEvaluation.MockPageEvaluation(events.contains("MOCK_PAGE_OPEN"),
                             events.contains("MOCK_LOGIN_ATTEMPT"), verified), now);
@@ -318,6 +325,35 @@ public class TrainingWorkflow {
                 response.path("shouldFinish").asBoolean(), response.path("mockPage").isObject());
     }
 
+    static List<TrainingResponses.Option> optionsFor(String reply) {
+        var options = new java.util.ArrayList<>(SAFE_OPTIONS);
+        MockPhoto.offered(reply).forEach(photo -> options.add(photo.option()));
+        return List.copyOf(options);
+    }
+
+    private static Suggestion photoDisclosure(Suggestion suggestion, MockPhoto photo) {
+        var actions = new java.util.LinkedHashSet<>(suggestion.actions());
+        actions.remove("SAFE_RESPONSE");
+        actions.add("RISKY_RESPONSE");
+        actions.add("SENSITIVE_INFO_SHARED");
+        actions.add(photo.code());
+        return new Suggestion(suggestion.reply(), List.copyOf(actions), suggestion.shouldFinish(), suggestion.showPage());
+    }
+
+    static ReportEvaluation photoFeedback(ReportEvaluation evaluation, List<String> events, boolean verified) {
+        var photos = events.stream().map(MockPhoto::fromCode).filter(java.util.Objects::nonNull).distinct().toList();
+        if (photos.isEmpty()) return evaluation;
+        var improvements = new java.util.ArrayList<String>();
+        photos.forEach(photo -> improvements.add(photo.subject() + " 제공 요청에 응했어요. 실제 상황에서는 출처를 확인하기 전 자료를 보내지 마세요."));
+        if (evaluation != null) improvements.addAll(evaluation.improvements());
+        return new ReportEvaluation(evaluation == null ? "사진 제공 요청에 응한 행동을 되돌아보세요." : evaluation.overallFeedback(),
+                evaluation == null ? List.of() : evaluation.strengths(), improvements.stream().distinct().limit(10).toList(),
+                evaluation == null ? List.of() : evaluation.turnFeedback(),
+                evaluation == null ? new ReportEvaluation.MockPageEvaluation(events.contains("MOCK_PAGE_OPEN"),
+                        events.contains("MOCK_LOGIN_ATTEMPT"), verified) : evaluation.mockPageEvaluation(),
+                evaluation == null ? List.of("개인 자료를 요구받으면 직접 찾은 공식 채널에서 요청을 확인하세요.") : evaluation.recommendations());
+    }
+
     private record Suggestion(String reply, List<String> actions, boolean shouldFinish, boolean showPage) {}
 
     private List<Map<String, String>> conversation(long id) {
@@ -336,7 +372,8 @@ public class TrainingWorkflow {
         if (last.getOptionsJson() != null) {
             for (var option : json.readTree(last.getOptionsJson())) {
                 if (code.equals(option.path("code").asString())) {
-                    return new TrainingResponses.Option(code, option.path("label").asString());
+                    var photo = MockPhoto.fromCode(code);
+                    return photo == null ? new TrainingResponses.Option(code, option.path("label").asString()) : photo.option();
                 }
             }
         }

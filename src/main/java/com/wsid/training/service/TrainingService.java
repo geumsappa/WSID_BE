@@ -122,7 +122,8 @@ public class TrainingService {
                 .filter(m -> m.getInputKind() != InputKind.ACTION).toList();
         var restored = history.stream().map(m -> new TrainingResponses.HistoryMessage(
                 m.getId(), m.getSender(), m.getInputKind() == InputKind.OPTION ? "CHOICE" : m.getInputKind().name(),
-                m.getContent(), TrainingResponses.phase(m.getPhase()))).toList();
+                m.getContent(), TrainingResponses.phase(m.getPhase()),
+                MockPhoto.fromCode(m.getActionCode()) == null ? null : MockPhoto.fromCode(m.getActionCode()).attachment())).toList();
         var last = history.isEmpty() ? null : history.getLast();
         var options = session.getStatus() == TrainingStatus.ACTIVE && last != null
                 && last.getSender() == MessageSender.AI && last.getOptionsJson() != null
