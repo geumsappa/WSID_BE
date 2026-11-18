@@ -18,8 +18,9 @@ public class TrainingAiGateway {
 
     public TrainingAiGateway(AiProperties properties) {
         this.properties = properties;
-        // uvicorn은 h2c 업그레이드를 지원하지 않아 HTTP/1.1로 고정해요(HttpAiClient와 같은 이유).
-        var factory = new JdkClientHttpRequestFactory(HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
+        var factory = new JdkClientHttpRequestFactory(HttpClient.newBuilder()
+                // Uvicorn serves HTTP/1.1; avoid an h2c upgrade on JSON POST requests.
+                .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(properties.connectTimeout()).build());
         factory.setReadTimeout(properties.readTimeout());
         client = RestClient.builder().baseUrl(properties.baseUrl()).requestFactory(factory)

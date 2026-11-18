@@ -106,8 +106,6 @@ public class HttpAiClient implements AiClient {
     }
 
     private static RestClient.Builder configuredBuilder(AiProperties properties, Duration readTimeout) {
-        // FastAPI(uvicorn)는 평문 HTTP의 h2c 업그레이드를 지원하지 않아요. JDK 기본값(HTTP/2)은 Upgrade 헤더를
-        // 붙여 보내 본문이 깨지므로(422) 내부 AI 호출은 HTTP/1.1로 고정해요.
         HttpClient httpClient = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(properties.connectTimeout()).build();
         JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(httpClient);
