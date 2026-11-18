@@ -19,6 +19,8 @@ public class TrainingAiGateway {
     public TrainingAiGateway(AiProperties properties) {
         this.properties = properties;
         var factory = new JdkClientHttpRequestFactory(HttpClient.newBuilder()
+                // Uvicorn serves HTTP/1.1; avoid an h2c upgrade on JSON POST requests.
+                .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(properties.connectTimeout()).build());
         factory.setReadTimeout(properties.readTimeout());
         client = RestClient.builder().baseUrl(properties.baseUrl()).requestFactory(factory)

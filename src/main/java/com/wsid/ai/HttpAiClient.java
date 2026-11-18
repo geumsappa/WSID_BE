@@ -85,7 +85,8 @@ public class HttpAiClient implements AiClient {
     }
 
     private static RestClient.Builder configuredBuilder(AiProperties properties, Duration readTimeout) {
-        HttpClient httpClient = HttpClient.newBuilder().connectTimeout(properties.connectTimeout()).build();
+        HttpClient httpClient = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(properties.connectTimeout()).build();
         JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(httpClient);
         factory.setReadTimeout(readTimeout);
         return RestClient.builder().requestFactory(factory);
