@@ -64,6 +64,29 @@ public class SolutionSession {
     @ColumnTransformer(write = "cast(? as jsonb)")
     private String nextQuestionJson;
 
+    @Column(name = "pending_assist_json", columnDefinition = "jsonb")
+    @ColumnTransformer(write = "cast(? as jsonb)")
+    private String pendingAssistJson;
+
+    public PendingAssist readPendingAssist() {
+        if (pendingAssistJson == null) return null;
+        try {
+            var node = JSON.readTree(pendingAssistJson);
+            if (!node.isObject() || node.size() != 5
+                    || !node.path("questionId").isString() || !node.path("fact").isString()
+                    || !node.path("questionIntent").isString() || !node.path("askedFactKeys").isArray()
+                    || !node.path("remainingClarifications").isInt()) throw new IllegalArgumentException();
+            String id = node.path("questionId").asString();
+            if (!UUID.fromString(id).toString().equalsIgnoreCase(id)) throw new IllegalArgumentException();
+            for (var key : node.path("askedFactKeys")) if (!key.isString()) throw new IllegalArgumentException();
+            return JSON.treeToValue(node, PendingAssist.class);
+        } catch (RuntimeException e) { throw corrupted("pending_assist_json"); }
+    }
+
+    public static String encodePendingAssist(PendingAssist state) {
+        return state == null ? null : JSON.writeValueAsString(state);
+    }
+
     @Version
     @Column(name = "state_version", nullable = false)
     private Integer stateVersion;

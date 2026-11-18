@@ -67,6 +67,29 @@ class HttpAiClientSolutionExplainTest {
         assertFalse(serialized.contains("evidence"));
     }
 
+    @Test
+    void acceptsUnwrappedResultLikeFastApi() {
+        server.expect(anything()).andRespond(withSuccess("""
+                {"explanation":"검토된 대응 카드의 순서와 준비 항목을 확인하세요.","referenceCodes":["REF_1"]}""",
+                MediaType.APPLICATION_JSON));
+        assertEquals(List.of("REF_1"), client.explainSolution(request).referenceCodes());
+        server.verify();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"data\":{\"explanation\":\"설명\",\"referenceCodes\":[\"REF_1\"]}}",
+            "{\"referenceCodes\":[\"REF_1\"]}",
+            "{\"explanation\":\"설명\",\"referenceCodes\":[\"REF_NEW\"]}",
+            "{\"explanation\":\"010-0000-0000으로 연락하세요\",\"referenceCodes\":[\"REF_1\"]}",
+            "{\"explanation\":1,\"referenceCodes\":[\"REF_1\"]}",
+            "{\"success\":false,\"explanation\":\"설명\",\"referenceCodes\":[\"REF_1\"]}"})
+    void unwrappedResultStillGetsStrictContentChecks(String body) {
+        server.expect(anything()).andRespond(withSuccess(body, MediaType.APPLICATION_JSON));
+        assertPrivateFailure();
+        server.verify();
+    }
+
     static Stream<String> invalidResponses() {
         var base = new ObjectMapper().readTree(RESPONSE);
         Stream<String> envelope = Stream.of("", "{", "null", "[]", "{}", "{\"success\":true}",

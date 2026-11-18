@@ -78,6 +78,11 @@ wsid:
     read-timeout: 20s          # 훈련 턴 전체 25초(제안값) 안에 대체 문구로 넘어가도록
     scenario-read-timeout: ${AI_SCENARIO_READ_TIMEOUT:20s} # AI-03만 별도 조정. 운영 값은 AI 서비스와 합의
     evaluation-read-timeout: ${AI_EVALUATION_READ_TIMEOUT:20s} # AI-05 평가만 별도 조정
+    assist-read-timeout: ${AI_ASSIST_READ_TIMEOUT:20s} # PLAN·ANSWER 각각 적용
+    assist-total-timeout: ${AI_ASSIST_TOTAL_TIMEOUT:40s} # 상담 처리 예산(초과 시 저장 롤백)
+    assist-mode: ${AI_ASSIST_MODE:shared} # shared: 공통 AI_MODE, 또는 assist만 fake/http
+    assist-base-url: ${AI_ASSIST_BASE_URL:${AI_BASE_URL:http://localhost:8000}}
+    assist-api-key: ${AI_ASSIST_API_KEY:${AI_API_KEY:local-dev-key}}
   training:
     key-scene-deadline-turn: 12
     max-simulation-turns: 15

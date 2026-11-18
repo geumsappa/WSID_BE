@@ -6,6 +6,10 @@ import com.wsid.ai.dto.ScenarioGenerateRequest;
 import com.wsid.ai.dto.ScenarioGenerateResult;
 import com.wsid.ai.dto.SimulationReplyRequest;
 import com.wsid.ai.dto.SimulationReplyResult;
+import com.wsid.ai.dto.SolutionAssistAnswerRequest;
+import com.wsid.ai.dto.SolutionAssistAnswerResult;
+import com.wsid.ai.dto.SolutionAssistPlanRequest;
+import com.wsid.ai.dto.SolutionAssistPlanResult;
 import com.wsid.ai.dto.SolutionExtractRequest;
 import com.wsid.ai.dto.SolutionExtractResult;
 import com.wsid.ai.dto.SolutionExplainRequest;
@@ -79,4 +83,19 @@ public interface AiClient {
      * @throws AiUnavailableException 호출 실패 또는 응답 계약·근거 코드·출력 제한 위반
      */
     SolutionExplainResult explainSolution(SolutionExplainRequest request);
+
+    /**
+     * 상담 assist PLAN(계약 초안 v1): 질문에 답할 정보·근거가 충분한지 판단해 추가 질문, 근거 후보, 답변 불가 중 하나를 받아요.
+     * 근거 후보의 승인 확인·질문 저장은 호출자 책임이며 트랜잭션 밖에서 호출해요.
+     *
+     * @throws AiUnavailableException 호출 실패 또는 계약·요청 대조 위반
+     */
+    SolutionAssistPlanResult planSolutionAssist(SolutionAssistPlanRequest request);
+
+    /**
+     * 상담 assist ANSWER(계약 초안 v1): 승인 근거로만 질문 답변을 받아요. 인용 코드는 요청 근거의 부분집합이어야 해요.
+     *
+     * @throws AiUnavailableException 호출 실패 또는 계약·근거 코드·출력 제한 위반
+     */
+    SolutionAssistAnswerResult answerSolutionAssist(SolutionAssistAnswerRequest request);
 }

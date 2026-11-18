@@ -39,6 +39,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class SendSolutionMessageService {
     private static final Logger log = LoggerFactory.getLogger(SendSolutionMessageService.class);
     private final AiClient ai;
+    private SolutionAssistService assist;
+    @Autowired(required = false)
+    public void setAssistService(SolutionAssistService assist) { this.assist = assist; }
     private final SensitiveDescriptionGuard guard;
     private final ResponseCardCatalog cards;
     private final SolutionSessionRepository sessions;
@@ -73,6 +76,10 @@ public class SendSolutionMessageService {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public SolutionMessageResponse send(long id, SendSolutionMessageRequest request,
             Supplier<Optional<SolutionOwner>> owner) {
+        if (request.purpose() != SendSolutionMessageRequest.Purpose.FACT_UPDATE) {
+            if (assist == null) throw new IllegalStateException("assist service is not configured");
+            return assist.send(id, request, owner);
+        }
         SolutionOwner resolved = existingOwner(owner);
         Snapshot snapshot = read.execute(tx -> snapshot(id, resolved, request));
         SolutionFacts extracted = null;
