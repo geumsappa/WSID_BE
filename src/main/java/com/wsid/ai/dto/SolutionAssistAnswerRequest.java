@@ -11,10 +11,15 @@ import java.util.UUID;
 
 /** 상담 assist ANSWER 요청(계약 초안 v1). Spring이 승인 원본과 대조한 근거만 담아요. 새 검색은 하지 않아요. */
 @JsonInclude(JsonInclude.Include.ALWAYS)
-@JsonPropertyOrder({"phase", "question", "questionIntent", "facts", "verifiedReferences"})
+@JsonPropertyOrder({"phase", "question", "questionIntent", "facts", "verifiedReferences", "fraudType"})
 public record SolutionAssistAnswerRequest(
         String question, SolutionAssistIntent questionIntent, Map<String, String> facts,
-        List<VerifiedReference> verifiedReferences, @JsonIgnore UUID requestId) {
+        List<VerifiedReference> verifiedReferences, @JsonIgnore UUID requestId, String fraudType) {
+
+    public SolutionAssistAnswerRequest(String question, SolutionAssistIntent questionIntent, Map<String, String> facts,
+            List<VerifiedReference> verifiedReferences, UUID requestId) {
+        this(question, questionIntent, facts, verifiedReferences, requestId, null);
+    }
 
     public SolutionAssistAnswerRequest {
         SolutionAssistFacts.requireQuestion(question);
@@ -30,6 +35,7 @@ public record SolutionAssistAnswerRequest(
             }
         }
         verifiedReferences = List.copyOf(verifiedReferences);
+        fraudType = SolutionFraudType.require(fraudType);
     }
 
     @JsonProperty("phase")
@@ -40,6 +46,6 @@ public record SolutionAssistAnswerRequest(
     @Override
     public String toString() {
         return "SolutionAssistAnswerRequest[hasQuestion=" + (question != null) + ", questionIntent=" + questionIntent
-                + ", referenceCount=" + verifiedReferences.size() + ", requestId=" + requestId + "]";
+                + ", referenceCount=" + verifiedReferences.size() + ", fraudType=" + fraudType + ", requestId=" + requestId + "]";
     }
 }

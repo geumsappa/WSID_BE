@@ -85,11 +85,12 @@ class HttpAiClientSolutionAssistTransportTest {
         // uvicorn은 h2c 업그레이드 요청의 본문을 읽지 못해 422를 돌려줘요. 운영 경로는 HTTP/1.1이어야 해요.
         assertEquals("HTTP/1.1", receivedProtocol.get());
         assertNull(receivedUpgrade.get());
-        // 운영 경로(기본 RestClient 변환기)에서도 null 필드를 빼지 않고 계약의 여섯 키를 그대로 보내야 해요.
+        // 운영 경로(기본 RestClient 변환기)에서도 null 필드를 빼지 않고 계약의 일곱 키(fraudType 포함)를 그대로 보내야 해요.
         var keys = new java.util.TreeSet<String>();
         body.propertyNames().forEach(keys::add);
         assertEquals(new java.util.TreeSet<>(List.of("phase", "question", "questionIntent", "facts",
-                "askedFactKeys", "remainingClarifications")), keys);
+                "askedFactKeys", "remainingClarifications", "fraudType")), keys);
+        assertTrue(body.path("fraudType").isNull());
         assertTrue(body.path("questionIntent").isNull());
         assertEquals(4, body.path("facts").size());
     }

@@ -9,7 +9,11 @@ import java.util.stream.Collectors;
 
 /** AI-06 제안 결과. 사용자 확정값과의 충돌 해결·카드 선택·저장은 호출자가 수행해요. */
 @JsonIgnoreProperties(ignoreUnknown = true)
-public record SolutionExtractResult(Map<String, String> facts, List<String> uncertainFields) {
+public record SolutionExtractResult(Map<String, String> facts, List<String> uncertainFields, String fraudType) {
+
+    public SolutionExtractResult(Map<String, String> facts, List<String> uncertainFields) {
+        this(facts, uncertainFields, null);
+    }
 
     public SolutionExtractResult {
         if (facts == null || !facts.keySet().equals(SolutionExtractRequest.FACT_KEYS)
@@ -26,10 +30,11 @@ public record SolutionExtractResult(Map<String, String> facts, List<String> unce
         }
         facts = Map.copyOf(facts);
         uncertainFields = List.copyOf(uncertainFields);
+        fraudType = SolutionFraudType.orNull(fraudType);
     }
 
     @Override
     public String toString() {
-        return "SolutionExtractResult[factCount=" + facts.size() + ", uncertainCount=" + uncertainFields.size() + "]";
+        return "SolutionExtractResult[factCount=" + facts.size() + ", uncertainCount=" + uncertainFields.size() + ", fraudType=" + fraudType + "]";
     }
 }

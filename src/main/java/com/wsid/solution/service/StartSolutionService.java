@@ -83,8 +83,9 @@ public class StartSolutionService {
         UUID requestId = UUID.randomUUID();
 
         boolean described = request.description().isPresent();
-        SolutionFacts facts = request.description().map(text -> extract(text, requestId))
-                .orElseGet(SolutionFacts::unknown);
+        Extracted extracted = request.description().map(text -> extract(text, requestId))
+                .orElseGet(() -> new Extracted(SolutionFacts.unknown(), null));
+        SolutionFacts facts = extracted.facts();
         List<ResponseCard> responseCards;
         try {
             responseCards = ResponseRules.cards(facts, cards);
@@ -98,7 +99,7 @@ public class StartSolutionService {
         return transaction.execute(status -> {
             Instant now = clock.instant();
             SolutionSession session = sessions.saveAndFlush(
-                    SolutionSession.start(resolvedOwner, facts, responseCards, question, title, now));
+                    SolutionSession.start(resolvedOwner, facts, responseCards, question, title, extracted.fraudType(), now));
             long id = session.getId();
             messages.save(described
                     ? SolutionMessage.of(id, MessageSender.USER, InputKind.TEXT, 1, DESCRIPTION_RECEIVED, requestId, now)
@@ -114,13 +115,16 @@ public class StartSolutionService {
     }
 
     /** AI 실패·타임아웃·계약 위반만 직접 선택으로 넘겨요. 요청 구성 오류는 숨기지 않아요. */
-    private SolutionFacts extract(String description, UUID requestId) {
+    private Extracted extract(String description, UUID requestId) {
         var aiRequest = new SolutionExtractRequest(description, Map.of(), requestId);
         try {
-            return SolutionFacts.fromStrings(aiClient.extractSolutionFacts(aiRequest).facts());
+            var result = aiClient.extractSolutionFacts(aiRequest);
+            return new Extracted(SolutionFacts.fromStrings(result.facts()), result.fraudType());
         } catch (AiUnavailableException e) {
             log.info("SOL-01 AI-06 사용 불가, 직접 선택으로 시작 requestId={}", requestId);
-            return SolutionFacts.unknown();
+            return new Extracted(SolutionFacts.unknown(), null);
         }
     }
+
+    private record Extracted(SolutionFacts facts, String fraudType) {}
 }

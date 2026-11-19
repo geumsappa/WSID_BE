@@ -1,5 +1,7 @@
 # SOL-03 피해 대응 상담 메시지 구현 보고서와 연동 안내
 
+> 사기 유형 반영(2026-11-19): AI-06 응답의 `fraudType`(MESSENGER_PHISHING·SMISHING·LOAN_FRAUD·INSTITUTION_IMPERSONATION·INVESTMENT_FRAUD·SECONDHAND_TRADE)을 `solution_sessions.fraud_type_code`에 저장해요. SOL-01은 시작 때, SOL-03 텍스트·사진은 값이 비어 있을 때만 채워요(처음 값 유지). 모르는 코드는 버려요. assist PLAN·ANSWER 요청에 `fraudType`으로 함께 보내요(없으면 null). 프론트 API 형식은 바뀌지 않아요. 사진 상담 안내(`SolutionImageAdviceService`)에는 아직 보내지 않아요.
+
 작성일: 2026-11-17 · 기준 브랜치: OHC · [구현 계획서](sol-03-session-message-plan.md)
 
 `POST /api/solutions/sessions/{id}/messages`를 구현했다. 회원·비회원 모두 본인 상담에 TEXT 또는 CHOICE로 답할 수 있다. TEXT는 기존 AI-06 클라이언트를 호출하고, CHOICE는 AI 없이 반영한다. 사실·현재 검토 카드·다음 질문·안전한 메시지·버전은 PostgreSQL 트랜잭션 한 번으로 저장한다.

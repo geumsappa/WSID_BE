@@ -14,10 +14,15 @@ import java.util.UUID;
  * 첫 PLAN의 questionIntent를 보내요. Python은 요청 사이 상태를 저장하지 않아요.
  */
 @JsonInclude(JsonInclude.Include.ALWAYS)
-@JsonPropertyOrder({"phase", "question", "questionIntent", "facts", "askedFactKeys", "remainingClarifications"})
+@JsonPropertyOrder({"phase", "question", "questionIntent", "facts", "askedFactKeys", "remainingClarifications", "fraudType"})
 public record SolutionAssistPlanRequest(
         String question, SolutionAssistIntent questionIntent, Map<String, String> facts,
-        List<String> askedFactKeys, int remainingClarifications, @JsonIgnore UUID requestId) {
+        List<String> askedFactKeys, int remainingClarifications, @JsonIgnore UUID requestId, String fraudType) {
+
+    public SolutionAssistPlanRequest(String question, SolutionAssistIntent questionIntent, Map<String, String> facts,
+            List<String> askedFactKeys, int remainingClarifications, UUID requestId) {
+        this(question, questionIntent, facts, askedFactKeys, remainingClarifications, requestId, null);
+    }
     public static final int MAX_QUESTION_LENGTH = 1_000;
     public static final int MAX_CLARIFICATIONS = 3;
 
@@ -35,6 +40,7 @@ public record SolutionAssistPlanRequest(
             }
         }
         askedFactKeys = List.copyOf(askedFactKeys);
+        fraudType = SolutionFraudType.require(fraudType);
     }
 
     @JsonProperty("phase")
@@ -46,6 +52,6 @@ public record SolutionAssistPlanRequest(
     public String toString() {
         return "SolutionAssistPlanRequest[hasQuestion=" + (question != null) + ", questionIntent=" + questionIntent
                 + ", askedCount=" + askedFactKeys.size() + ", remainingClarifications=" + remainingClarifications
-                + ", requestId=" + requestId + "]";
+                + ", fraudType=" + fraudType + ", requestId=" + requestId + "]";
     }
 }

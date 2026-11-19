@@ -70,7 +70,7 @@ class HttpAiClientSolutionAssistTest {
                 .andExpect(content().json("""
                         {"phase":"PLAN","question":"앱 관련해서 어떻게 해야 하나요?","questionIntent":null,
                         "facts":{"transferredMoney":"YES","sharedInformation":"NO","installedApp":"UNKNOWN",
-                        "contactContinues":"UNKNOWN"},"askedFactKeys":[],"remainingClarifications":3}""",
+                        "contactContinues":"UNKNOWN"},"askedFactKeys":[],"remainingClarifications":3,"fraudType":null}""",
                         JsonCompareMode.STRICT))
                 .andRespond(withSuccess(NEED_INPUT, MediaType.APPLICATION_JSON));
         var result = client.planSolutionAssist(plan);
@@ -89,7 +89,7 @@ class HttpAiClientSolutionAssistTest {
         server.expect(content().json("""
                 {"phase":"PLAN","question":null,"questionIntent":"DEVICE_SAFETY","facts":{"transferredMoney":"YES",
                 "sharedInformation":"NO","installedApp":"YES","contactContinues":"UNKNOWN"},
-                "askedFactKeys":["installedApp"],"remainingClarifications":2}""", JsonCompareMode.STRICT))
+                "askedFactKeys":["installedApp"],"remainingClarifications":2,"fraudType":null}""", JsonCompareMode.STRICT))
                 .andRespond(withSuccess(EVIDENCE, MediaType.APPLICATION_JSON));
         var result = client.planSolutionAssist(followUp);
         assertEquals(List.of(new SolutionCandidateReference("APP_REMOVE_GUIDE", "1")), result.candidateReferences());
@@ -112,7 +112,7 @@ class HttpAiClientSolutionAssistTest {
                         {"phase":"ANSWER","question":"앱 관련해서 어떻게 해야 하나요?","questionIntent":"DEVICE_SAFETY",
                         "facts":{"transferredMoney":"YES","sharedInformation":"NO","installedApp":"UNKNOWN",
                         "contactContinues":"UNKNOWN"},"verifiedReferences":[{"code":"APP_REMOVE_GUIDE",
-                        "title":"악성 앱 삭제 방법","excerpt":"설치한 앱을 삭제합니다."}]}""", JsonCompareMode.STRICT))
+                        "title":"악성 앱 삭제 방법","excerpt":"설치한 앱을 삭제합니다."}],"fraudType":null}""", JsonCompareMode.STRICT))
                 .andRespond(withSuccess(ANSWERED, MediaType.APPLICATION_JSON));
         var result = client.answerSolutionAssist(answer);
         assertEquals(SolutionAssistStatus.ANSWERED, result.status());
