@@ -23,7 +23,9 @@ class TrainingMockLinkTest {
         when(session.getScenarioJson()).thenReturn(scenario());
         var page = TrainingWorkflow.availablePage(session);
         assertNotNull(page);
-        assertEquals("지원자 본인 확인", page.title());
+        assertEquals("RECRUIT_APPLICANT", page.templateCode());
+        assertEquals("APPLICANT_CHECK", page.screenCode());
+        assertEquals("지원자 확인", page.title());
         assertEquals("기업은행", page.institutionName());
         assertTrue(page.isSimulation());
     }

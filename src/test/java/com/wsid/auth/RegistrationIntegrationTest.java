@@ -343,7 +343,8 @@ class RegistrationIntegrationTest {
             assertError(getWithCookie(path + "/mock-page", other), 404, "TRAINING_NOT_FOUND");
             var action = data(reportPost(path + "/actions", owner, token, trainingBody(version,
                     Map.of("actionCode", "MOCK_PAGE_OPEN", "actionMeta",
-                            Map.of("templateCode", "BANK_NOTICE", "screenCode", "LOGIN_CHECK")))), 200);
+                            Map.of("templateCode", page.path("templateCode").asText(),
+                                    "screenCode", page.path("screenCode").asText())))), 200);
             assertTrue(action.path("recorded").asBoolean());
             var choice = data(reportPost(path + "/messages", owner, token, trainingBody(action.path("stateVersion").asInt(),
                     Map.of("inputKind", "CHOICE", "selectedCode", "OFFICIAL_CHANNEL_CHECK"))), 200);
