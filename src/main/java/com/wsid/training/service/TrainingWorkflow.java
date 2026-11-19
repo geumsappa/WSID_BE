@@ -18,19 +18,14 @@ import com.wsid.training.dto.TrainingRequests;
 import com.wsid.training.dto.TrainingResponses;
 import com.wsid.training.repository.TrainingMessageRepository;
 import com.wsid.training.repository.TrainingSessionRepository;
-import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.regex.Pattern;
-import org.springframework.core.io.ByteArrayResource;
-import org.springframework.http.MediaType;
-import org.springframework.http.client.MultipartBodyBuilder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.springframework.web.multipart.MultipartFile;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
@@ -39,7 +34,6 @@ import tools.jackson.databind.node.ObjectNode;
 public class TrainingWorkflow {
     private static final String TYPE = "SECONDHAND_TRADE";
     private static final int MAX_DISCOVERY_TURNS = 5;
-    private static final long MAX_IMAGE_BYTES = 5L * 1024 * 1024;
     private static final List<TrainingResponses.Option> SAFE_OPTIONS = List.of(
             new TrainingResponses.Option("OFFICIAL_CHANNEL_CHECK", "공식 채널에서 직접 확인할게요."),
             new TrainingResponses.Option("END_CONTACT", "대화를 중단할게요."));
@@ -118,37 +112,6 @@ public class TrainingWorkflow {
             sessions.flush();
             return new TrainingResponses.Discovery(first(reply), count, canGenerate, locked.getStateVersion());
         });
-    }
-
-    public TrainingResponses.Ocr ocr(long id, List<MultipartFile> images) {
-        checkPhase(owned(id, currentUser.id()), TrainingPhase.DISCOVERY);
-        if (images.isEmpty()) throw error(ErrorCode.INVALID_REQUEST);
-        if (images.size() > 3) throw error(ErrorCode.FILE_TOO_LARGE);
-        var multipart = new MultipartBodyBuilder();
-        for (MultipartFile image : images) {
-            if (image.getSize() > MAX_IMAGE_BYTES) throw error(ErrorCode.FILE_TOO_LARGE);
-            try {
-                byte[] bytes = image.getBytes();
-                MediaType type = imageType(bytes);
-                multipart.part("images", new ByteArrayResource(bytes)).contentType(type)
-                        .filename(type.equals(MediaType.IMAGE_PNG) ? "image.png" : "image.jpg");
-            } catch (IOException e) {
-                throw error(ErrorCode.OCR_FAILED);
-            }
-        }
-        if (ai.isMock()) return new TrainingResponses.Ocr("", false);
-        JsonNode response;
-        try {
-            response = ai.request("/ocr/extract", multipart.build());
-        } catch (ApiException e) {
-            throw error(ErrorCode.OCR_FAILED);
-        }
-        if (!response.path("usable").asBoolean()) return new TrainingResponses.Ocr("", false);
-        String text = response.path("recognizedText").asString("");
-        if (text.isBlank() || text.length() > 1000 || SENSITIVE.matcher(text).find() || LIVE_LINK.matcher(text).find()) {
-            throw error(ErrorCode.OCR_FAILED);
-        }
-        return new TrainingResponses.Ocr(text, true);
     }
 
     public TrainingResponses.Scenario scenario(long id, TrainingRequests.Versioned request) {
@@ -554,15 +517,6 @@ public class TrainingWorkflow {
             throw error(ErrorCode.AI_SERVICE_UNAVAILABLE);
         }
         return text;
-    }
-
-    private static MediaType imageType(byte[] data) {
-        if (data.length >= 8 && (data[0] & 255) == 137 && data[1] == 80 && data[2] == 78 && data[3] == 71
-                && data[4] == 13 && data[5] == 10 && data[6] == 26 && data[7] == 10) return MediaType.IMAGE_PNG;
-        if (data.length >= 3 && (data[0] & 255) == 255 && (data[1] & 255) == 216 && (data[2] & 255) == 255) {
-            return MediaType.IMAGE_JPEG;
-        }
-        throw error(ErrorCode.INVALID_REQUEST);
     }
 
     private static ApiException error(ErrorCode code) { return new ApiException(code); }

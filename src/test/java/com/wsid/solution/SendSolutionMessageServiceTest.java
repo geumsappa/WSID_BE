@@ -236,4 +236,45 @@ class SendSolutionMessageServiceTest {
         assertFalse(output.getAll().contains(cause));
         assertFalse(output.getAll().contains(request.content()));
     }
+
+    // SOL-06: 사진에서 읽은 글자를 SOL-03 텍스트처럼 반영
+    private com.wsid.solution.dto.SolutionMessageResponse sendImage(UUID requestId, Supplier<String> recognize) {
+        return service.sendRecognizedText(301, requestId, 2, recognize, () -> Optional.of(owner));
+    }
+
+    @Test void recognizedTextRunsOcrOutsideTransactionAndSavesOnlyPlaceholder() {
+        String recognized = "중고거래 판매자에게 50만원을 송금했어요";
+        when(ai.extractSolutionFacts(any())).thenAnswer(i -> {
+            assertFalse(active.get());
+            com.wsid.ai.dto.SolutionExtractRequest req = i.getArgument(0);
+            assertEquals(recognized, req.description());
+            return result("YES", "UNKNOWN", "UNKNOWN", "UNKNOWN");
+        });
+        var response = sendImage(UUID.randomUUID(), () -> { assertFalse(active.get()); return recognized; });
+        assertEquals(3, response.stateVersion());
+        assertEquals("YES", response.facts().get("transferredMoney"));
+        assertEquals("사진 속 내용을 제출했습니다.", saved.getFirst().getSafeContent());
+        assertTrue(saved.stream().noneMatch(m -> recognized.equals(m.getSafeContent())));
+    }
+
+    @Test void recognizedTextChecksSessionBeforeCallingOcr() {
+        var ocrCalled = new AtomicBoolean();
+        Supplier<String> ocr = () -> { ocrCalled.set(true); return "설명"; };
+        UUID duplicate = UUID.randomUUID();
+        when(messages.existsBySolutionIdAndClientRequestId(301L, duplicate)).thenReturn(true);
+        fails(ErrorCode.DUPLICATE_REQUEST, () -> sendImage(duplicate, ocr));
+        ReflectionTestUtils.setField(session, "stateVersion", 3);
+        fails(ErrorCode.STATE_VERSION_CONFLICT, () -> sendImage(UUID.randomUUID(), ocr));
+        fails(ErrorCode.SOLUTION_NOT_FOUND,
+                () -> service.sendRecognizedText(301, UUID.randomUUID(), 2, ocr, Optional::empty));
+        assertFalse(ocrCalled.get());
+        verifyNoInteractions(ai);
+    }
+
+    @Test void recognizedTextUsesSameSensitiveGuardAndOcrErrorsSaveNothing() {
+        fails(ErrorCode.SENSITIVE_DATA_DETECTED, () -> sendImage(UUID.randomUUID(), () -> "계좌 110-123-456789로 보내세요"));
+        fails(ErrorCode.OCR_FAILED, () -> sendImage(UUID.randomUUID(), () -> { throw new com.wsid.common.error.ApiException(ErrorCode.OCR_FAILED); }));
+        verifyNoInteractions(ai);
+        assertTrue(saved.isEmpty());
+    }
 }

@@ -8,8 +8,8 @@ AI 서비스(FastAPI)를 부르는 유일한 통로예요. 다른 패키지는 `
 
 | 내부 API | 하는 일 | 쓰는 기능 | 상태 |
 |---|---|---|---|
-| I1 | 일상 대화: 후속 질문, 사실·위험 요소 추출, 판단 지점 선정, OCR | SIM-001, 002, 004 | AI-01 fake/HTTP 어댑터 구현; 위험 요소·판단 지점·OCR은 후속 작업 |
-| AI-02 | POST | `/internal/ai/ocr/extract` | 내부 | 어댑터 구현(`AiClient.extractText`, fake/HTTP multipart); TRN-05 연결·AI 서비스 통합 검증 미완료 |
+| I1 | 일상 대화: 후속 질문, 사실·위험 요소 추출, 판단 지점 선정, OCR | SIM-001, 002, 004 | AI-01 fake/HTTP 어댑터 구현; 위험 요소·판단 지점은 후속 작업. OCR(AI-02)은 피해 대응 SOL-06에서만 사용 |
+| AI-02 | POST | `/internal/ai/ocr/extract` | 내부 | FastAPI 구현(Tesseract `kor+eng`). Spring은 `AiClient.extractText`로 SOL-06에서만 호출([설계](../../../../../../docs/ai-02-ocr.md)) |
 | I2 | 개인화 시나리오 생성 | SIM-005 | AI-03 fake/HTTP 클라이언트 구현. 실제 FastAPI·훈련 저장 연결은 미완료 |
 | I3 | 가상 훈련 한 턴: 다음 대사, 행동 판정, 핵심 장면 제안, 가드레일 | SIM-007, 008, 011 | AI-04 새 클라이언트 구현. 기존 서비스 전환·실제 가드레일·핵심 장면 맥락 연결은 미완료 |
 | I4 | 리포트 평가 | SIM-010 | AI-05 fake/HTTP 클라이언트 구현. 실제 FastAPI·리포트 생성/저장 연결은 미완료 |
@@ -26,7 +26,7 @@ AI-01 개발 흐름과 요청·응답 초안은 [상황 파악 다음 질문 개
 | API ID | 메서드 | 경로 | 인증 | 현재 구현 |
 |---|---|---|---|---|
 | AI-01 | POST | `/internal/ai/discovery/next` | 내부 | fake 및 HTTP 어댑터·응답 계약 테스트 구현; 실제 FastAPI 통합 검증은 미완료 |
-| AI-02 | POST | `/internal/ai/ocr/extract` | 내부 | 어댑터 구현(`AiClient.extractText`, fake/HTTP multipart); TRN-05 연결·AI 서비스 통합 검증 미완료 |
+| AI-02 | POST | `/internal/ai/ocr/extract` | 내부 | FastAPI 구현(Tesseract `kor+eng`). Spring은 `AiClient.extractText`로 SOL-06에서만 호출([설계](../../../../../../docs/ai-02-ocr.md)) |
 | AI-03 | POST | `/internal/ai/scenarios/generate` | 내부 | fake/HTTP 클라이언트·응답 타입 검사·요청 ID·전용 타임아웃 구현. 실제 FastAPI·TRN-06 연결은 미완료 |
 | AI-04 | POST | `/internal/ai/simulation/reply` | 내부 | replySimulation fake/HTTP 클라이언트·엄격한 응답 검사 구현. 기존 훈련 서비스는 옛 메서드·경로 유지, 실제 FastAPI·서비스 전환 미완료 |
 | AI-05 | POST | `/internal/ai/training/evaluate` | 내부 | evaluateTraining fake/HTTP 클라이언트·엄격한 응답 검사·전용 타임아웃 구현. 실제 FastAPI·리포트 서비스 연결은 미완료 |
@@ -40,12 +40,12 @@ AI-01 개발 흐름과 요청·응답 초안은 [상황 파악 다음 질문 개
 
 자세한 흐름·FastAPI 제안 구조·남은 작업은 [AI-02 OCR 추출 개발·연결 설계](../../../../../../docs/ai-02-ocr.md)를 참고해요.
 
-훈련 이미지에서 문자를 읽고 민감정보를 검사해요. 외부 사용자가 직접 부르지 않고, 업로드를 받는 TRN-05가 검증을 마친 이미지만 넘겨요.
+사진에서 글자를 읽고 민감정보를 검사해요. 외부 사용자가 직접 부르지 않고, 피해 대응 사진 입력(SOL-06)이 검증을 마친 이미지만 넘겨요. 훈련 TRN-05는 제거했어요.
 
 - 요청: `multipart/form-data`, 파트 이름 `images`(여러 장)
 - 응답: `{"success":true,"data":{"recognizedText":"거래 관련 안내","usable":true}}`
 - `usable=false`는 민감정보가 걸렸다는 뜻이에요. 그 문자는 저장하거나 다음 AI 요청에 넣지 않아요.
-- `{"success":false,"error":{"code":"OCR_FAILED",...}}`는 예외가 아니라 `OcrExtractResult.failed()`로 돌려줘요. 화면은 "이미지를 읽지 못했어요"로 이어가요. 실패 본문 형식은 가정이라 AI repo와 확정해야 해요.
+- `{"success":false,"error":{"code":"OCR_FAILED",...}}`는 예외가 아니라 `OcrExtractResult.failed()`로 돌려줘요. SOL-06은 이를 `OCR_FAILED`(직접 입력 안내)로 바꿔요. FastAPI 구현과 같은 형식이에요.
 - 그 밖의 오류 코드, 타임아웃, JSON이 아닌 본문, `data` 없음은 `AiUnavailableException`이에요.
 - 원본 이미지는 호출 동안 메모리에만 두고 DB·디스크·로그에 남기지 않아요. `OcrImage`·`OcrExtractResult`의 `toString`은 바이트와 인식 문자를 출력하지 않아요.
 - `FakeAiClient`는 파일 이름에 `ocr-fail`이 있으면 실패 결과를 돌려줘요.

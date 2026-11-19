@@ -18,6 +18,7 @@ import java.time.Instant;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.Set;
 import java.util.function.Supplier;
 import org.hibernate.exception.ConstraintViolationException;
@@ -38,6 +39,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class SendSolutionMessageService {
     private static final Logger log = LoggerFactory.getLogger(SendSolutionMessageService.class);
+    /** SOL-06 사진 입력 때 대화 기록에 남기는 고정 문구. 인식한 글자는 저장하지 않아요. */
+    static final String IMAGE_RECEIVED = "사진 속 내용을 제출했습니다.";
     private final AiClient ai;
     private SolutionAssistService assist;
     @Autowired(required = false)
@@ -80,7 +83,28 @@ public class SendSolutionMessageService {
             if (assist == null) throw new IllegalStateException("assist service is not configured");
             return assist.send(id, request, owner);
         }
+        return sendFactUpdate(id, request, existingOwner(owner), owner, StartSolutionService.DESCRIPTION_RECEIVED);
+    }
+
+    /**
+     * SOL-06. 소유권·중복·상태·버전을 먼저 확인한 뒤에만 OCR을 불러요. 읽은 글자는 SOL-03 텍스트와 같은
+     * 민감정보 확인 → AI-06 사실 추출 → 병합·카드 선택 흐름으로 이어가고, 원문은 저장하지 않아요.
+     *
+     * @param recognize 트랜잭션 밖에서 실행할 OCR. 사용할 수 없으면 ApiException을 던져요.
+     */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public SolutionMessageResponse sendRecognizedText(long id, UUID requestId, int stateVersion,
+            Supplier<String> recognize, Supplier<Optional<SolutionOwner>> owner) {
         SolutionOwner resolved = existingOwner(owner);
+        SendSolutionMessageRequest probe = SendSolutionMessageRequest.recognizedText(requestId, stateVersion, IMAGE_RECEIVED);
+        read.execute(tx -> snapshot(id, resolved, probe));
+        SendSolutionMessageRequest request =
+                SendSolutionMessageRequest.recognizedText(requestId, stateVersion, recognize.get());
+        return sendFactUpdate(id, request, resolved, owner, IMAGE_RECEIVED);
+    }
+
+    private SolutionMessageResponse sendFactUpdate(long id, SendSolutionMessageRequest request, SolutionOwner resolved,
+            Supplier<Optional<SolutionOwner>> owner, String userMessage) {
         Snapshot snapshot = read.execute(tx -> snapshot(id, resolved, request));
         SolutionFacts extracted = null;
         if (request.isText()) {
@@ -96,7 +120,7 @@ public class SendSolutionMessageService {
         if (!resolved.equals(existingOwner(owner))) throw new ApiException(ErrorCode.SOLUTION_NOT_FOUND);
         SolutionFacts result = extracted;
         try {
-            return write.execute(tx -> apply(id, resolved, request, result));
+            return write.execute(tx -> apply(id, resolved, request, result, userMessage));
         } catch (ConcurrentUpdate | OptimisticLockingFailureException | PessimisticLockingFailureException e) {
             throw classifyRace(id, resolved, request);
         } catch (DataIntegrityViolationException e) {
@@ -127,7 +151,7 @@ public class SendSolutionMessageService {
     }
 
     private SolutionMessageResponse apply(long id, SolutionOwner owner, SendSolutionMessageRequest request,
-            SolutionFacts extracted) {
+            SolutionFacts extracted, String userMessage) {
         Snapshot before = snapshot(id, owner, request);
         SolutionFacts updated;
         if (request.isText()) {
@@ -158,7 +182,7 @@ public class SendSolutionMessageService {
         int sequence = Math.addExact(messages.lastSequence(id), 1);
         messages.save(request.isText()
                 ? SolutionMessage.of(id, MessageSender.USER, InputKind.TEXT, sequence,
-                        StartSolutionService.DESCRIPTION_RECEIVED, request.requestId(), now)
+                        userMessage, request.requestId(), now)
                 : SolutionMessage.choice(id, sequence, request.fact(), request.selected(), request.requestId(), now));
         if (question != null && !Objects.equals(question, before.question())) {
             messages.save(SolutionMessage.of(id, MessageSender.SYSTEM, InputKind.TEXT, Math.addExact(sequence, 1),

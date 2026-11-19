@@ -1,5 +1,10 @@
 package com.wsid.solution.controller;
 
+import com.wsid.solution.service.SolutionImageService;
+import java.util.UUID;
+import java.util.List;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.bind.annotation.RequestParam;
 import com.wsid.common.api.ApiResponse;
 import com.wsid.common.error.ApiException;
 import com.wsid.common.error.ErrorCode;
@@ -59,6 +64,10 @@ public class SolutionController {
     private final SendSolutionMessageService messageService;
     private final UpdateSolutionFactsService factsService;
     private final CompleteSolutionService completeService;
+    private SolutionImageService imageService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setImageService(SolutionImageService imageService) { this.imageService = imageService; }
 
     public SolutionController(StartSolutionService startService, SolutionQueryService queryService,
             SolutionOwnerResolver owners, SendSolutionMessageService messageService, UpdateSolutionFactsService factsService,
@@ -109,6 +118,40 @@ public class SolutionController {
         long solutionId = parseId(id);
         SendSolutionMessageRequest input = SendSolutionMessageRequest.from(strictBody(request));
         return ApiResponse.ok(messageService.send(solutionId, input, () -> owners.findExisting(authentication, request)));
+    }
+
+    /**
+     * SOL-06: 사진 속 글자를 읽어 SOL-03 텍스트 입력처럼 반영해요. multipart 파트는 images(1~3장), requestId, stateVersion.
+     * CSRF → ID → 파트 형식·파일 검증 → 소유권 순서이고, 응답 모양은 SOL-03과 같아요.
+     */
+    @PostMapping(path = "/sessions/{id}/images", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ApiResponse<SolutionMessageResponse> images(@PathVariable("id") String id,
+            @RequestParam(name = "images", required = false) List<MultipartFile> images,
+            @RequestParam(name = "requestId", required = false) String requestId,
+            @RequestParam(name = "stateVersion", required = false) String stateVersion,
+            Authentication authentication, HttpServletRequest request) {
+        long solutionId = parseId(id);
+        if (imageService == null) throw new IllegalStateException("image service is not configured");
+        UUID parsedRequestId = parseUuid(requestId);
+        int parsedVersion = parseVersion(stateVersion);
+        return ApiResponse.ok(imageService.send(solutionId, parsedRequestId, parsedVersion, images,
+                () -> owners.findExisting(authentication, request)));
+    }
+
+    private static final Pattern UUID_TEXT = Pattern.compile(
+            "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
+    private static final Pattern VERSION_TEXT = Pattern.compile("0|[1-9][0-9]{0,9}");
+
+    private static UUID parseUuid(String value) {
+        if (value == null || !UUID_TEXT.matcher(value).matches()) throw new ApiException(ErrorCode.INVALID_REQUEST);
+        return UUID.fromString(value);
+    }
+
+    private static int parseVersion(String value) {
+        if (value == null || !VERSION_TEXT.matcher(value).matches()) throw new ApiException(ErrorCode.INVALID_REQUEST);
+        long version = Long.parseLong(value);
+        if (version >= Integer.MAX_VALUE) throw new ApiException(ErrorCode.INVALID_REQUEST);
+        return (int) version;
     }
 
     /** SOL-04: SOL-03과 같은 CSRF → ID → JSON 본문 → 소유권 순서. 응답 모양도 SOL-03과 같아요. */
