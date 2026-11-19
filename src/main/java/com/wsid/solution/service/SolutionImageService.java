@@ -62,10 +62,16 @@ public class SolutionImageService {
     public SolutionMessageResponse send(long id, UUID requestId, int stateVersion, List<MultipartFile> files,
             Supplier<Optional<SolutionOwner>> owner) {
         List<OcrImage> images = validate(files);
-        SolutionMessageResponse saved =
-                messages.sendRecognizedText(id, requestId, stateVersion, () -> recognize(images, requestId), owner);
+        var read = new java.util.concurrent.atomic.AtomicReference<OcrExtractResult>();
+        SolutionMessageResponse saved = messages.sendRecognizedText(id, requestId, stateVersion, () -> {
+            OcrExtractResult result = ocr(images, requestId);
+            read.set(result);
+            return photo(result);
+        }, owner);
         // 여기부터는 사실·카드가 이미 커밋된 상태예요. 안내는 덧붙이기만 하고 실패해도 저장 결과를 돌려줘요.
-        var assistant = advice.optionalAdvice(saved.facts(), requestId);
+        OcrExtractResult ocr = read.get(); // 저장까지 성공했다면 OCR은 이미 실행됐어요. 방어적으로 null도 받아요.
+        var assistant = advice.optionalAdvice(saved.facts(), ocr == null ? OcrImageType.OTHER : ocr.imageType(),
+                ocr == null ? null : ocr.summary(), requestId);
         if (assistant == null || !stillCurrent(id, saved.stateVersion(), owner)) return saved;
         return new SolutionMessageResponse(saved.facts(), saved.responseCards(), saved.nextQuestion(),
                 saved.stateVersion(), assistant);
@@ -112,6 +118,10 @@ public class SolutionImageService {
      * </ul>
      */
     SendSolutionMessageService.RecognizedPhoto recognize(List<OcrImage> images, UUID requestId) {
+        return photo(ocr(images, requestId));
+    }
+
+    private OcrExtractResult ocr(List<OcrImage> images, UUID requestId) {
         OcrExtractResult result;
         try {
             result = ai.extractText(images);
@@ -120,6 +130,10 @@ public class SolutionImageService {
             throw new ApiException(ErrorCode.AI_SERVICE_UNAVAILABLE);
         }
         if (result == null || !result.hasRecognizedText()) throw new ApiException(ErrorCode.OCR_FAILED);
+        return result;
+    }
+
+    private static SendSolutionMessageService.RecognizedPhoto photo(OcrExtractResult result) {
         return new SendSolutionMessageService.RecognizedPhoto(extractInput(result), userMessage(result.imageType()));
     }
 

@@ -133,10 +133,22 @@ class SolutionImageServiceTest {
         assertEquals("사진(기타 자료)을 제출했습니다.", SolutionImageService.userMessage(OcrImageType.OTHER));
     }
 
+    @SuppressWarnings("unchecked")
+    private void savedAfterRunningOcr(int version) {
+        when(messages.sendRecognizedText(anyLong(), any(), anyInt(), any(), any())).thenAnswer(i -> {
+            ((java.util.function.Supplier<?>) i.getArgument(3)).get();
+            return saved(version);
+        });
+    }
+
     @Test void attachesAdviceOnlyWhenSessionIsStillCurrent() {
-        when(messages.sendRecognizedText(anyLong(), any(), anyInt(), any(), any())).thenReturn(saved(3));
+        savedAfterRunningOcr(3);
+        when(ai.extractText(any())).thenReturn(new OcrExtractResult("[Web발신] 택배 주소 확인", true, OcrImageType.SMS,
+                "택배 주소 불일치를 이유로 링크 접속을 요구하는 문자"));
         var assistant = new SolutionAssistant(SolutionAssistStatus.ANSWERED, "안내", List.of("REF_1"), null, null);
-        when(advice.optionalAdvice(any(), eq(requestId))).thenReturn(assistant);
+        // 안내 요청에는 사진 종류와 요약이 함께 가요(원문은 가지 않음).
+        when(advice.optionalAdvice(any(), eq(OcrImageType.SMS), eq("택배 주소 불일치를 이유로 링크 접속을 요구하는 문자"),
+                eq(requestId))).thenReturn(assistant);
         SolutionSession session = mock(SolutionSession.class);
         when(session.getStatus()).thenReturn(SolutionStatus.ACTIVE);
         when(session.getStateVersion()).thenReturn(3);
@@ -151,7 +163,7 @@ class SolutionImageServiceTest {
 
     @Test void adviceFailureStillReturnsSavedFactsAndCards() {
         when(messages.sendRecognizedText(anyLong(), any(), anyInt(), any(), any())).thenReturn(saved(3));
-        when(advice.optionalAdvice(any(), any())).thenReturn(null);
+        when(advice.optionalAdvice(any(), any(), any(), any())).thenReturn(null);
         var response = service.send(301, requestId, 2, List.of(file("a.png", "image/png", PNG)), () -> Optional.of(owner));
         assertEquals(3, response.stateVersion());
         assertEquals("YES", response.facts().get("transferredMoney"));

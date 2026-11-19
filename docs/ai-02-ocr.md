@@ -115,6 +115,6 @@ FastAPI `feature/ocr-paddle` 기준이에요.
 | `recognizedText` | string | 민감정보를 가리지 않은 원문. 저장·로그 금지 |
 | `usable` | boolean | 받기만 하고 SOL-06은 이 값으로 거부하지 않아요 |
 | `imageType` | `SMS`·`MESSENGER_CHAT`·`TRANSFER_RECEIPT`·`WEB_PAGE`·`OTHER` 또는 null | 모르는 값·null·누락은 `OTHER` |
-| `summary` | string(300자 이하) 또는 null | 빈 문자열은 null. 300자 초과나 문자열이 아닌 값은 AI 사용 불가 |
+| `summary` | string(300자 이하) 또는 null | 빈 문자열과 300자 초과는 null(사진 입력은 계속 진행). 문자열이 아닌 값은 AI 사용 불가 |
 
 - Spring의 AI-02 응답 제한은 `AI_OCR_READ_TIMEOUT`(기본 30초)이에요. FastAPI가 OCR 15초 + 분류 3초를 쓰므로 기본 응답 제한(20초)보다 길게 뒀어요.

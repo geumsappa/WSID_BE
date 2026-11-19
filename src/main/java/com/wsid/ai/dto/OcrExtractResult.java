@@ -6,7 +6,7 @@ package com.wsid.ai.dto;
  * @param recognizedText 이미지에서 읽은 문자. FastAPI는 민감정보를 가리지 않고 원문을 보내요(Gemini에 보낼 때만 가림).
  * @param usable         FastAPI의 민감정보 검사 결과. 상담 사진 입력(SOL-06)은 이 값으로 거부하지 않아요.
  * @param imageType      사진 분류. 분류 실패나 모르는 값은 OTHER예요.
- * @param summary        사진 요약. 분류 실패 시 null이에요.
+ * @param summary        사진 요약. 분류 실패 시, 또는 300자를 넘으면 null이에요.
  * 원문과 요약은 DB·로그에 남기지 않아요.
  */
 public record OcrExtractResult(String recognizedText, boolean usable, OcrImageType imageType, String summary) {
@@ -15,9 +15,8 @@ public record OcrExtractResult(String recognizedText, boolean usable, OcrImageTy
     public OcrExtractResult {
         if (imageType == null) imageType = OcrImageType.OTHER;
         if (summary != null && summary.isBlank()) summary = null;
-        if (summary != null && summary.length() > MAX_SUMMARY_LENGTH) {
-            throw new IllegalArgumentException("OCR 요약이 너무 길어요.");
-        }
+        // 요약은 부가 정보예요. 계약보다 길면 버리고 사진 입력은 계속 진행해요.
+        if (summary != null && summary.length() > MAX_SUMMARY_LENGTH) summary = null;
     }
 
     /** 분류 정보가 없던 기존 호출과 테스트용이에요. */

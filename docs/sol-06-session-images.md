@@ -68,7 +68,7 @@ sequenceDiagram
     M->>AI: AI-06 사실 추출 (트랜잭션 밖)
     M->>M: 저장 직전 재확인 → 사실 병합·카드·질문 → CAS 저장 (커밋)
     M-->>I: 저장 결과
-    I->>AI: assist PLAN → 승인 근거 확인 → ANSWER (고정 질문 + 저장된 사실만, 최대 20초)
+    I->>AI: assist PLAN → 승인 근거 확인 → ANSWER (사진 종류·요약 + 저장된 사실, 최대 10초)
     I->>I: 상담이 아직 같은 버전이면 assistant를 붙임
     I-->>FE: SOL-03과 같은 응답 + assistant
 ```
@@ -76,9 +76,10 @@ sequenceDiagram
 - 파일·소유권·버전이 틀리면 **OCR을 부르지 않아요.** 남의 상담이나 오래된 화면에서 온 요청으로 AI를 쓰지 않게 했어요.
 - AI 호출 중에는 DB 트랜잭션을 잡지 않아요. 저장은 SOL-03과 같은 CAS 한 번이에요.
 - 사실 추출에 보내는 글자 예: `사진 종류: 송금 내역\n요약: 50만원 송금 내역\n인식 문자: ...`. 1000자를 넘으면 인식 문자 뒤쪽을 잘라요(전에는 `OCR_FAILED`).
-- 대응 안내에는 사진 원문·요약을 보내지 않아요. 고정 질문 문장과 저장된 사실 4개만 보내고, 추가 질문은 하지 않아요(`remainingClarifications=0`).
+- 대응 안내 질문에는 **사진 종류와 요약**을 넣어요. 예: `사진 종류: 문자 메시지 / 사진 내용: 택배 주소 불일치를 이유로 링크 접속을 요구하는 문자 / 이 사진과 확인된 피해 사실을 기준으로 지금 해야 할 대응 방법을 안내해 주세요.` 그래야 같은 사실이라도 사진 내용에 맞는 안내가 나와요.
+- 사진 원문은 보내지 않아요. 요약에 계좌·전화번호 같은 숫자(`SensitiveDescriptionGuard` 기준)나 링크가 보이면 요약도 빼고 종류만 보내요. 추가 질문은 하지 않아요(`remainingClarifications=0`).
 - 안내를 기다리는 사이 다른 요청으로 상태가 바뀌었거나 상담이 끝났으면, 오래된 안내는 붙이지 않아요.
-- **대기 시간:** OCR 30초(`AI_OCR_READ_TIMEOUT`), 사실 추출 20초, 안내 20초(`AI_IMAGE_ADVICE_TIMEOUT`)라 최악이면 한 요청이 70초 넘게 걸릴 수 있어요. 프론트 요청 제한 시간을 이보다 길게 두거나, 안내 대기 시간을 줄여야 해요.
+- **대기 시간:** OCR 30초(`AI_OCR_READ_TIMEOUT`), 사실 추출 20초, 안내 10초(`AI_IMAGE_ADVICE_TIMEOUT`, 부가 기능이라 짧게)라 최악이면 한 요청이 약 60초예요. 프론트 요청 제한 시간은 이보다 길게 둬요.
 
 ## 저장하는 것과 저장하지 않는 것
 
@@ -116,7 +117,7 @@ sequenceDiagram
 | `solution/controller/SolutionController.java` | `POST /sessions/{id}/images` 추가, multipart 파트 검증 |
 | `solution/security/SolutionSecurityConfig.java` | SOL-06 경로 허용 (CSRF는 그대로 필요) |
 | `solution/service/SolutionImageService.java` | TRN-05 검증 이전. OCR 결과 → 상담 입력(종류·요약·원문 합치기), 저장 뒤 안내 붙이기 |
-| `solution/service/SolutionImageAdviceService.java` | 신규. 고정 질문으로 assist PLAN→ANSWER 한 번, 실패·시간 초과는 null |
+| `solution/service/SolutionImageAdviceService.java` | 신규. 사진 종류·요약을 넣은 질문으로 assist PLAN→ANSWER 한 번, 실패·시간 초과는 null |
 | `solution/service/SendSolutionMessageService.java` | `sendRecognizedText`(사진 전용, 민감정보 확인 건너뜀). SOL-03 텍스트는 그대로 검사 |
 | `solution/dto/SendSolutionMessageRequest.java` | 읽은 글자로 요청을 만드는 `recognizedText` 추가 |
 | `ai/dto/OcrExtractResult.java`, `ai/dto/OcrImageType.java` | `imageType`·`summary` 추가. 모르는 종류·분류 실패는 `OTHER`·`null` |
@@ -131,9 +132,9 @@ sequenceDiagram
 | 테스트 | 확인하는 것 |
 |---|---|
 | `SolutionImageServiceTest` | 파일 검증, OCR 실패만 `OCR_FAILED`, 민감정보(usable=false)는 진행, 종류·요약·원문 합치기와 1000자 자르기(이모지 안 깨짐), 기록 문구, 안내는 같은 버전일 때만 붙이고 실패해도 저장 결과 반환 |
-| `SolutionImageAdviceServiceTest` | 고정 질문·사실만 보냄, 추가 질문 없음, 근거 없음·범위 밖·장애·시간 초과는 null이고 예외 없음 |
+| `SolutionImageAdviceServiceTest` | 질문에 종류·요약 포함(원문 없음), 숫자·링크가 섞인 요약은 제외, 추가 질문 없음, 근거 없음·범위 밖·장애·시간 초과는 null이고 예외 없음 |
 | `SendSolutionMessageServiceTest` | 사진은 계좌번호가 있어도 진행·원문 미저장, 같은 글자를 채팅으로 보내면 `SENSITIVE_DATA_DETECTED`, 세션 확인 전 OCR 미호출 |
-| `HttpAiClientOcrTest` | `imageType`·`summary` 수신, 모르는 값·null·누락은 `OTHER`·null, 타입 오류·요약 300자 초과·봉투 없음은 AI 사용 불가, toString에 원문 없음 |
+| `HttpAiClientOcrTest` | `imageType`·`summary` 수신, 모르는 값·null·누락은 `OTHER`·null, 300자 초과 요약은 null, 타입 오류·봉투 없음은 AI 사용 불가, toString에 원문 없음 |
 | `SolutionWebSecurityTest` | 실제 보안 체인·multipart로 성공 흐름, 검증 순서, `OCR_FAILED`, 민감정보 사진 200·원문 미저장 |
 
 실제 FastAPI(PaddleOCR)와의 연결은 아직 확인하지 않았어요.

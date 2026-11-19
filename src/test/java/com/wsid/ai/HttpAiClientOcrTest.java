@@ -141,7 +141,9 @@ class HttpAiClientOcrTest {
 
     @Test
     void 분류가_없거나_모르는_값이면_OTHER와_null로_받는다() {
-        for (String data : List.of("\"imageType\":null,\"summary\":null", "\"imageType\":\"FAX\",\"summary\":\"  \"", "")) {
+        // 300자를 넘는 요약도 오류가 아니라 null이에요(사진 입력 전체를 실패시키지 않음).
+        for (String data : List.of("\"imageType\":null,\"summary\":null", "\"imageType\":\"FAX\",\"summary\":\"  \"", "",
+                "\"imageType\":\"OTHER\",\"summary\":\"" + "가".repeat(301) + "\"")) {
             respond(200, "{\"success\":true,\"data\":{\"recognizedText\":\"안내\",\"usable\":true"
                     + (data.isEmpty() ? "" : "," + data) + "}}");
             var result = client.extractText(List.of(new OcrImage("a.png", "image/png", new byte[] {1})));
@@ -155,7 +157,6 @@ class HttpAiClientOcrTest {
         for (String body : List.of(
                 "{\"success\":true,\"data\":{\"recognizedText\":\"안내\",\"usable\":true,\"imageType\":1}}",
                 "{\"success\":true,\"data\":{\"recognizedText\":\"안내\",\"usable\":true,\"summary\":[]}}",
-                "{\"success\":true,\"data\":{\"recognizedText\":\"안내\",\"usable\":true,\"summary\":\"" + "가".repeat(301) + "\"}}",
                 "{\"success\":true,\"data\":{\"recognizedText\":1,\"usable\":true}}",
                 "{\"success\":true,\"data\":{\"recognizedText\":\"안내\",\"usable\":\"true\"}}",
                 "{\"recognizedText\":\"안내\",\"usable\":true}")) {
