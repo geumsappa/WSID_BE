@@ -45,6 +45,7 @@ public class SolutionSecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(HttpMethod.GET, "/api/solutions/csrf").permitAll()          // 비회원 CSRF 발급
                 .requestMatchers(HttpMethod.POST, "/api/solutions/sessions").permitAll()     // SOL-01
+                .requestMatchers(HttpMethod.GET, "/api/solutions/sessions").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/solutions/sessions/{id}").permitAll() // SOL-02
                 .requestMatchers(HttpMethod.POST, "/api/solutions/sessions/{id}/messages").permitAll() // SOL-03
                 .requestMatchers(HttpMethod.POST, "/api/solutions/sessions/{id}/images").permitAll()   // SOL-06

@@ -8,6 +8,8 @@
 | [AI-02 OCR 추출 개발·연결 설계](ai-02-ocr.md) | FastAPI OCR(Tesseract)과 Spring 클라이언트의 HTTP 계약, 경우별 처리 확인 |
 | [SOL-06 피해 대응 사진 입력](sol-06-session-images.md) | 사진 글자를 상담 사실 추출·근거 검색에 쓰는 흐름, TRN-05에서 옮긴 검증, 오류 코드·테스트 확인 |
 | [SOL-06 검토·수정 보고서](sol-06-review-fix-report.md) | 대응 안내에 사진 종류·요약 반영, 긴 요약 처리, 대기 시간 조정과 남은 작업·머지 순서 확인 |
+| [SOL-07 완료 상담 목록 계획서](sol-07-session-list-plan.md) | 회원 완료 상담 목록 API, 원문 없이 만드는 제목 방안, 다시 보기에서 보이는 범위, 구현·테스트 단계와 팀 결정 항목 |
+| [SOL-07 완료 상담 목록 구현 보고서](sol-07-session-list.md) | 회원별 목록·커서·제목·상세 시각 및 복원 한계 확인 |
 | [AI-03 개인화 훈련 시나리오 생성 구현 계획서](ai-03-scenario-plan.md) | 구현 범위·API 계약·Spring/FastAPI 역할·훈련 연결 순서·검증 계획 확인 |
 | [AI-03 시나리오 생성 구현·연결 안내](ai-03-scenario.md) | 구현한 코드·DTO·HTTP 검증·설정·관련 코드의 역할·FastAPI 및 훈련 연결 작업·검증 결과 확인 |
 | [AI-04 역할극 응답·행동 분석 구현 계획서](ai-04-simulation-plan.md) | 새 내부 API 계약·기존 코드 전환·행동/종료/모의 페이지 정책·Spring/FastAPI 역할·검증 계획 확인 |

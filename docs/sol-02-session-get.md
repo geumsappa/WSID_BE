@@ -1,5 +1,7 @@
 # SOL-02 피해 대응 상담 복원 구현 보고서
 
+> SOL-07 구현으로 상세 응답에 `createdAt`과 `completedAt`이 추가됐어요. 진행 중 상담의 `completedAt`은 null이에요.
+
 작성일 2026-11-17 · 브랜치 OHC(`e8f1300` 위 작업) · 계획서: [SOL-02 구현·테스트 계획서](sol-02-session-get-plan.md) · 앞 단계: [SOL-01 구현 보고서](sol-01-session-start.md)
 
 `GET /api/solutions/sessions/{id}`로 상담의 현재 상태·사실·대응 카드·다음 질문·기록 메시지를 다시 불러와요. 새로고침·뒤로 가기·앱 복귀·409 충돌 뒤처럼 화면 상태를 잃었을 때, 프론트가 주소의 상담 ID로 호출해요. 같은 작업에서 **LSH AUTH 파일을 원래대로 되돌리고** 상담 보안 설정을 SOL 전용 파일로 옮겼어요(2장).
@@ -71,12 +73,18 @@
     "messages": [
       {"sequenceNo": 1, "sender": "USER", "inputKind": "TEXT", "content": "피해 설명을 제출했습니다.", "selectedCode": null},
       {"sequenceNo": 2, "sender": "SYSTEM", "inputKind": "TEXT", "content": "개인정보를 전달한 적이 있나요?", "selectedCode": null}
-    ]
+    ],
+    "assistant": null,
+    "createdAt": "2026-11-19T05:12:03Z",
+    "completedAt": null
   }
 }
 ```
 
 - 앞 6개 필드는 SOL-01 응답과 같은 값이에요(통합 테스트로 비교). 프론트는 두 응답을 같은 화면 상태로 쓸 수 있어요.
+- `createdAt`은 상담 생성 시각이고, `completedAt`은 종료 시각이에요. 진행 중이면 `completedAt`은 null이에요.
+- assist 추가 질문이 대기 중이면 `assistant.status`는 `NEED_USER_INPUT`이고 `assistant.question`에 `questionId`, `factKey`, `content`, `options`가 들어가요. 이때 `nextQuestion`은 null이므로 프론트는 `assistant.question`을 표시해요. 대기 중인 추가 질문이 없으면 `assistant`는 null이에요.
+- 종료된 상담(`status: COMPLETED`)은 대기 중이던 추가 질문이 있어도 `nextQuestion`과 `assistant`가 둘 다 null이에요. 프론트는 이때 질문 영역을 숨겨요.
 - `messages[].inputKind`는 DB의 `OPTION`을 공개 값 `CHOICE`로 바꿔요. 상담에서 쓰지 않는 `ACTION`이 저장돼 있으면 서버 오류로 처리해요.
 - `content`는 저장된 `safe_content` 그대로예요. SOL-01은 원문 대신 고정 문구만 저장하므로 원본 피해 설명은 복원되지 않아요.
 - 소유자 ID·익명 UUID·`client_request_id`·카드 version은 응답에 없어요.
@@ -163,5 +171,5 @@ DB·Redis 테스트는 전용 컨테이너에서만 실행했어요. 실행 명�
 1. **팀에 알릴 것:** LSH 파일을 되돌리고 상담 보안을 `SolutionSecurityConfig`·`/api/solutions/csrf`로 분리했어요. 팀 가이드("기존 CSRF API 확장")와 다르니 공유하고, 합칠지 정해요. V3 번호 확인도 여전히 필요해요.
 2. **프론트 확인:** 메시지 항목 5개 필드, 404를 받으면 "상담을 다시 시작해 주세요" 안내, 상담 중 로그인 전 안내 문구, 비회원은 `/api/solutions/csrf` 사용.
 3. **명세 정정:** SOL-02 메시지 항목 형식, 잘못된 id도 404, 503 추가. 명세 예시의 `transferredMoney: YES` + `responseCards: []`는 SOL-01 규칙(송금 YES → 카드)과 맞지 않아 고쳐야 해요.
-4. **SOL-03~05:** `findExisting`·`findOwned`·`read*` 메서드를 그대로 쓰고, 각 경로를 `SolutionSecurityConfig`에 소유권 검사와 함께 하나씩 공개해요. SOL-03은 선택 응답을 `InputKind.OPTION` + `selected_code`로 저장하면 SOL-02가 `CHOICE`로 보여줘요.
-5. **목록 없음:** 홈의 "진행 중 상담 이어 하기"는 프론트가 마지막 상담 ID를 `localStorage`에 저장해 SOL-02를 부르는 방식으로 해요(404면 저장값 삭제). 회원이 다른 기기에서 이어 하려면 별도 API를 명세에 추가해야 해요.
+4. **SOL-03~05: 처리됐어요.** 메시지 전송·사실 수정·상담 종료가 구현됐고, 저장된 선택 입력은 SOL-02에서 `CHOICE`로 보여줘요.
+5. **완료 상담 목록: SOL-07에서 처리됐어요.** 회원은 `GET /api/solutions/sessions`로 완료 상담을 볼 수 있어요. 진행 중 상담 이어 하기는 별도 범위이며, 다른 기기에서 이어 보기 정책은 따로 정해야 해요.

@@ -121,6 +121,39 @@ class SolutionWebSecurityTest {
         mvc.perform(completion(browser, token, "302", "")).andExpect(status().isUnauthorized());
     }
 
+    @Test void completedListRequiresActiveMemberAndIsNotCached() throws Exception {
+        var browser = new MockHttpSession();
+        mvc.perform(get("/api/solutions/sessions").session(browser))
+                .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("LOGIN_REQUIRED"));
+        var user = mock(User.class); when(user.getId()).thenReturn(42L);
+        when(ctx.getBean(LoginService.class).requireActiveUser(42L)).thenReturn(user);
+        browser.setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY,
+                new SecurityContextImpl(UsernamePasswordAuthenticationToken.authenticated(42L, null, List.of())));
+        mvc.perform(get("/api/solutions/sessions").session(browser))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.items").isEmpty())
+                .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")));
+        mvc.perform(get("/api/solutions/sessions").param("size", "51").session(browser))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test void detailReturnsCreatedAndCompletionTimestamps() throws Exception {
+        var browser = new MockHttpSession(); var token = csrf(browser);
+        mvc.perform(start(browser, token)).andExpect(status().isCreated());
+        var active = mvc.perform(get("/api/solutions/sessions/301").session(browser))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        var activeData = json.readTree(active).path("data");
+        assertTrue(activeData.has("createdAt"));
+        assertEquals(stored.getFirst().getCreatedAt(), java.time.Instant.parse(activeData.path("createdAt").asString()));
+        assertTrue(activeData.has("completedAt"));
+        assertTrue(activeData.path("completedAt").isNull());
+        mvc.perform(completion(browser, token, "301", "{}")).andExpect(status().isOk());
+        var completed = mvc.perform(get("/api/solutions/sessions/301").session(browser))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        var completedData = json.readTree(completed).path("data");
+        assertEquals(stored.getFirst().getCreatedAt(), java.time.Instant.parse(completedData.path("createdAt").asString()));
+        assertEquals(stored.getFirst().getCompletedAt(), java.time.Instant.parse(completedData.path("completedAt").asString()));
+    }
+
     private MockHttpServletRequestBuilder completion(MockHttpSession session, String[] token, String id, String body) {
         var request = post("/api/solutions/sessions/" + id + "/complete").session(session).content(body);
         return token == null ? request : request.header(token[0], token[1]);
@@ -130,7 +163,7 @@ class SolutionWebSecurityTest {
     @EnableWebMvc
     @EnableWebSecurity
     @Import({SecurityConfig.class, SolutionSecurityConfig.class, GlobalExceptionHandler.class, LoginController.class,
-            SolutionController.class, SolutionOwnerResolver.class, AnonymousOwnerIssuer.class,
+            SolutionController.class, com.wsid.solution.controller.SolutionListController.class, com.wsid.solution.service.SolutionListService.class, SolutionOwnerResolver.class, AnonymousOwnerIssuer.class,
             SensitiveDescriptionGuard.class, StartSolutionService.class, SolutionQueryService.class, SendSolutionMessageService.class,
             com.wsid.solution.service.UpdateSolutionFactsService.class, com.wsid.solution.service.CompleteSolutionService.class,
             com.wsid.solution.service.SolutionImageService.class})
@@ -141,6 +174,7 @@ class SolutionWebSecurityTest {
             return mock(com.wsid.solution.service.SolutionImageAdviceService.class); // 안내 없음(null)으로 응답
         }
         @Bean LoginService loginService() { return mock(LoginService.class); }
+        @Bean com.wsid.auth.CurrentUser currentUser(LoginService login) { return new com.wsid.auth.LoginCurrentUser(login); }
         @Bean StringRedisTemplate redis() { return mock(StringRedisTemplate.class); }
         @Bean SolutionSessionRepository sessions() { return mock(SolutionSessionRepository.class); }
         @Bean SolutionMessageRepository messages() { return mock(SolutionMessageRepository.class); }

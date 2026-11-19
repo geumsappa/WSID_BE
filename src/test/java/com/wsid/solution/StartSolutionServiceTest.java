@@ -116,6 +116,7 @@ class StartSolutionServiceTest {
         var stored = ArgumentCaptor.forClass(SolutionSession.class);
         verify(sessions).saveAndFlush(stored.capture());
         assertFalse(stored.getValue().getFactsJson().contains("모르는"));
+        assertEquals("모르는 사람에게 돈을 보냈고 연락이 끊겼어요.", stored.getValue().getTitle());
         assertEquals("[{\"code\":\"TRANSFER_RESPONSE\",\"version\":1}]", stored.getValue().getCardCodesJson());
         assertEquals(MessageSender.USER, saved.get(0).getSender());
         assertEquals(InputKind.TEXT, saved.get(0).getInputKind());
