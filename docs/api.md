@@ -94,6 +94,7 @@ TRN-11이 완료되면 리포트를 만들어요. 기본 모드는 규칙 기반
 | SOL-04 | PATCH | `/api/solutions/sessions/{id}/facts` | 불필요 (비회원 상담 소유권 확인 필요) | 구현: 직접 정정·전체 카드/다음 질문 재계산·SOL-03과 같은 응답·UNKNOWN 정정 이력·CAS/버전. 운영 카드 별도([보고서](sol-04-facts-update.md)) |
 | SOL-05 | POST | `/api/solutions/sessions/{id}/complete` | 불필요 (비회원 상담 소유권 확인 필요) | 구현: 본문 없음/빈 객체·소유권/CSRF·반복 무변경 200·최초 시각/버전 갱신·질문 종료. AI/카드 미호출([보고서](sol-05-session-complete.md)) |
 | SOL-06 | POST | `/api/solutions/sessions/{id}/images` | 불필요 (비회원 상담 소유권 확인 필요) | 구현(초안 ID): PNG/JPEG 1~3장·5MB·소유권/CSRF/중복/버전 확인 뒤 AI-02 OCR → SOL-03 텍스트와 같은 민감정보 확인·AI-06 추출·카드. 원문 미저장([설계](sol-06-session-images.md)) |
+| SOL-07 | GET | `/api/solutions/sessions` | 필요 | 완료 상담 목록: 사실 기반 제목·커서 페이지·회원 소유권([보고서](sol-07-session-list.md)) |
 
 ## 훈련
 

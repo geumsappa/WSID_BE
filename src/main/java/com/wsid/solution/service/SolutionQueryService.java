@@ -62,7 +62,7 @@ public class SolutionQueryService {
                     session.getStatus() == SolutionStatus.COMPLETED || session.readPendingAssist() != null ? null
                             : StartSolutionResponse.Question.from(session.readNextQuestion()), history,
                     session.getStatus() != SolutionStatus.COMPLETED && session.readPendingAssist() != null
-                        ? com.wsid.solution.dto.SolutionAssistant.pending(session.readPendingAssist()) : null);
+                        ? com.wsid.solution.dto.SolutionAssistant.pending(session.readPendingAssist()) : null, session.getCreatedAt(), session.getCompletedAt());
         });
     }
 
