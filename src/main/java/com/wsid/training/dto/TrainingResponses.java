@@ -33,7 +33,6 @@ public final class TrainingResponses {
     }
     public record Reply(MessageSender sender, String content, List<Option> options) {}
     public record Discovery(FirstMessage reply, int discoveryTurnCount, boolean canGenerateScenario, int stateVersion) {}
-    public record Ocr(String recognizedText, boolean usable) {}
     public record ScenarioSummary(String title, String description, String senderName, String organizationName) {
         public ScenarioSummary(String title, String description) { this(title, description, null, null); }
     }

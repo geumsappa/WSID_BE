@@ -47,6 +47,7 @@ public class SolutionSecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/solutions/sessions").permitAll()     // SOL-01
                 .requestMatchers(HttpMethod.GET, "/api/solutions/sessions/{id}").permitAll() // SOL-02
                 .requestMatchers(HttpMethod.POST, "/api/solutions/sessions/{id}/messages").permitAll() // SOL-03
+                .requestMatchers(HttpMethod.POST, "/api/solutions/sessions/{id}/images").permitAll()   // SOL-06
                 .requestMatchers(HttpMethod.PATCH, "/api/solutions/sessions/{id}/facts").permitAll()    // SOL-04
                 .requestMatchers(HttpMethod.POST, "/api/solutions/sessions/{id}/complete").permitAll() // SOL-05
                 .anyRequest().denyAll());

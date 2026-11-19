@@ -30,7 +30,7 @@ URL의 `sessions`는 리소스 이름이에요. 로그인 세션 기능을 켜�
 | API ID | 메서드 | 경로 | 인증 | 현재 구현 |
 |---|---|---|---|---|
 | AI-01 | POST | `/internal/ai/discovery/next` | 내부 | fake 및 HTTP 어댑터·응답 계약 테스트 구현; 실제 FastAPI 통합 검증은 미완료 |
-| AI-02 | POST | `/internal/ai/ocr/extract` | 내부 | 어댑터 구현(`AiClient.extractText`, fake/HTTP multipart); TRN-05 연결·AI 서비스 통합 검증 미완료 |
+| AI-02 | POST | `/internal/ai/ocr/extract` | 내부 | FastAPI 구현(Tesseract `kor+eng`). Spring은 `AiClient.extractText`로 SOL-06에서만 호출([설계](ai-02-ocr.md)) |
 | AI-03 | POST | `/internal/ai/scenarios/generate` | 내부 | fake/HTTP 클라이언트·엄격한 응답 타입 검사·요청 ID·전용 타임아웃 구현. FastAPI·훈련 생성/저장은 미연결. [구현 안내](ai-03-scenario.md) |
 | AI-04 | POST | `/internal/ai/simulation/reply` | 내부 | 새 replySimulation fake/HTTP 클라이언트·응답 타입 검사·계약 테스트 구현. 기존 훈련 서비스는 옛 /internal/training/turn 유지, FastAPI·TRN-08 전환 미완료. [구현 보고서](ai-04-simulation.md) |
 | AI-05 | POST | `/internal/ai/training/evaluate` | 내부 | evaluateTraining fake/HTTP 클라이언트·엄격한 응답 타입 검사·요청 ID·전용 타임아웃 구현. FastAPI·리포트 생성/저장/조회는 미연결. [구현 보고서](ai-05-evaluation.md) |
@@ -93,6 +93,7 @@ TRN-11이 완료되면 리포트를 만들어요. 기본 모드는 규칙 기반
 | SOL-03 | POST | `/api/solutions/sessions/{id}/messages` | 불필요 (비회원 상담 소유권 확인 필요) | 구현: TEXT AI-06·CHOICE·확정값 보호·UNKNOWN 질문 진행·소유권/CSRF·CAS/중복/버전. 운영 카드/FastAPI 별도([보고서](sol-03-session-message.md)) |
 | SOL-04 | PATCH | `/api/solutions/sessions/{id}/facts` | 불필요 (비회원 상담 소유권 확인 필요) | 구현: 직접 정정·전체 카드/다음 질문 재계산·SOL-03과 같은 응답·UNKNOWN 정정 이력·CAS/버전. 운영 카드 별도([보고서](sol-04-facts-update.md)) |
 | SOL-05 | POST | `/api/solutions/sessions/{id}/complete` | 불필요 (비회원 상담 소유권 확인 필요) | 구현: 본문 없음/빈 객체·소유권/CSRF·반복 무변경 200·최초 시각/버전 갱신·질문 종료. AI/카드 미호출([보고서](sol-05-session-complete.md)) |
+| SOL-06 | POST | `/api/solutions/sessions/{id}/images` | 불필요 (비회원 상담 소유권 확인 필요) | 구현(초안 ID): PNG/JPEG 1~3장·5MB·소유권/CSRF/중복/버전 확인 뒤 AI-02 OCR → SOL-03 텍스트와 같은 민감정보 확인·AI-06 추출·카드. 원문 미저장([설계](sol-06-session-images.md)) |
 
 ## 훈련
 
@@ -102,7 +103,7 @@ TRN-11이 완료되면 리포트를 만들어요. 기본 모드는 규칙 기반
 | TRN-02 | GET | `/api/trainings/active` | 필요 | 구현. 만료되지 않은 최근 훈련을 반환하며 없으면 `200`과 `data: null` |
 | TRN-03 | GET | `/api/trainings/{id}` | 필요 | undefined |
 | TRN-04 | POST | `/api/trainings/{id}/discovery/messages` | 필요 | 구현. 상황 파악 답변과 다음 질문 저장, 민감정보 및 중복 요청 차단 |
-| TRN-05 | POST | `/api/trainings/{id}/discovery/images` | 필요 | 구현. PNG/JPEG 최대 3장, 장당 5MB. 실제 OCR은 AI-02 필요 |
+| TRN-05 | POST | `/api/trainings/{id}/discovery/images` | 필요 | 제거. 훈련에서는 사진 입력을 쓰지 않고, 같은 검증을 SOL-06으로 옮겼어요 |
 | TRN-06 | POST | `/api/trainings/{id}/scenario` | 필요 | 구현. 상황 파악 완료 후 시나리오 생성과 SCENARIO_READY 전환 |
 | TRN-07 | POST | `/api/trainings/{id}/start` | 필요 | 구현. 준비된 시나리오로 가상 훈련 시작 |
 | TRN-08 | POST | `/api/trainings/{id}/messages` | 필요 | 구현. 텍스트·선택지 요청 처리, 다음 대사·판정·종료 제안 반환 |
@@ -112,7 +113,7 @@ TRN-11이 완료되면 리포트를 만들어요. 기본 모드는 규칙 기반
 
 훈련 변경 요청에는 로그인 세션의 CSRF 헤더가 필요해요. `stateVersion` 충돌은 409 `STATE_VERSION_CONFLICT`, 이미 저장된 메시지·행동 요청 ID는 409 `DUPLICATE_REQUEST`를 반환해요.
 
-기본 `AI_MODE=fake`에서는 상황 답변 3회 뒤 검토된 중고거래 예시로 진행하고, OCR은 직접 입력을 안내해요. `AI_MODE=http`에서는 노션의 AI-01~05 경로와 `success/data` 형식으로 FastAPI를 호출해요. AI 평가가 실패하면 훈련을 완료 처리하지 않아 다시 종료 요청을 보낼 수 있어요.
+기본 `AI_MODE=fake`에서는 상황 답변 3회 뒤 검토된 중고거래 예시로 진행하고, `AI_MODE=http`에서는 노션의 AI-01~05 경로와 `success/data` 형식으로 FastAPI를 호출해요. AI 평가가 실패하면 훈련을 완료 처리하지 않아 다시 종료 요청을 보낼 수 있어요.
 
 팀 확인 항목은 내부 AI의 세부 필드(사기 유형 코드, 시나리오 첫 대사), 금융 외 모의 페이지 코드, 프론트 상태 복구에 쓰는 TRN-03 추가 필드(`scenario`, `messages[].phase`, `canGenerateScenario`, `shouldFinish`)예요.
 

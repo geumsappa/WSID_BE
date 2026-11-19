@@ -13,7 +13,8 @@ public record AiProperties(
         Duration readTimeout,
         Duration scenarioReadTimeout,
         Duration evaluationReadTimeout,
-        Duration assistReadTimeout) {
+        Duration assistReadTimeout,
+        Duration ocrReadTimeout) {
 
     @ConstructorBinding
     public AiProperties {
@@ -29,6 +30,17 @@ public record AiProperties(
         if (assistReadTimeout == null || assistReadTimeout.isZero() || assistReadTimeout.isNegative()) {
             throw new IllegalArgumentException("상담 assist 응답 제한은 0보다 커야 해요.");
         }
+        // AI-02는 OCR(최대 15초)과 사진 분류(3초)를 합쳐 쓰므로 기본 응답 제한보다 길게 둬요.
+        if (ocrReadTimeout == null) ocrReadTimeout = Duration.ofSeconds(30);
+        if (ocrReadTimeout.isZero() || ocrReadTimeout.isNegative()) {
+            throw new IllegalArgumentException("OCR 응답 제한은 0보다 커야 해요.");
+        }
+    }
+
+    public AiProperties(String mode, String baseUrl, String apiKey, Duration connectTimeout, Duration readTimeout,
+            Duration scenarioReadTimeout, Duration evaluationReadTimeout, Duration assistReadTimeout) {
+        this(mode, baseUrl, apiKey, connectTimeout, readTimeout, scenarioReadTimeout, evaluationReadTimeout,
+                assistReadTimeout, null);
     }
 
     public AiProperties(String mode, String baseUrl, String apiKey, Duration connectTimeout,

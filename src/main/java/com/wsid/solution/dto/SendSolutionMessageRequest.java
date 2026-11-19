@@ -92,6 +92,18 @@ public final class SendSolutionMessageRequest {
         return new SendSolutionMessageRequest(UUID.fromString(id), version.intValue(), null, fact, selected);
     }
 
+    /**
+     * 사진에서 읽은 글자를 SOL-03 텍스트 입력과 같은 흐름으로 보내기 위한 요청이에요(SOL-06).
+     * 글자는 공개 입력과 같은 길이 제한을 따라요.
+     */
+    public static SendSolutionMessageRequest recognizedText(UUID requestId, int stateVersion, String content) {
+        if (requestId == null || stateVersion < 0 || stateVersion == Integer.MAX_VALUE
+                || content == null || content.isBlank() || content.length() > StartSolutionRequest.MAX_DESCRIPTION_LENGTH) {
+            throw invalid();
+        }
+        return new SendSolutionMessageRequest(requestId, stateVersion, content, null, null);
+    }
+
     private static String string(JsonNode body, String name) {
         JsonNode value = body.get(name);
         if (value == null || !value.isString()) throw invalid();

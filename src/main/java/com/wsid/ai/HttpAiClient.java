@@ -1,7 +1,7 @@
 package com.wsid.ai;
 
-import com.wsid.ai.dto.AiEnvelope;
 import com.wsid.ai.dto.OcrExtractResult;
+import com.wsid.ai.dto.OcrImageType;
 import com.wsid.ai.dto.OcrImage;
 import com.wsid.ai.dto.ScenarioGenerateRequest;
 import com.wsid.ai.dto.ScenarioGenerateResult;
@@ -60,19 +60,18 @@ public class HttpAiClient implements AiClient {
     private static final ObjectMapper SOLUTION_JSON = new ObjectMapper();
     private static final ObjectMapper EXPLANATION_JSON = new ObjectMapper();
 
-    private static final ParameterizedTypeReference<AiEnvelope<OcrExtractResult>> OCR_RESPONSE =
-            new ParameterizedTypeReference<>() {};
-
     private final RestClient restClient;
     private final RestClient scenarioRestClient;
     private final RestClient evaluationRestClient;
     private final RestClient assistRestClient;
+    private final RestClient ocrRestClient;
 
     public HttpAiClient(AiProperties properties) {
         this(properties, configuredBuilder(properties),
                 configuredBuilder(properties, properties.scenarioReadTimeout()),
                 configuredBuilder(properties, properties.evaluationReadTimeout()),
-                configuredBuilder(properties, properties.assistReadTimeout()));
+                configuredBuilder(properties, properties.assistReadTimeout()),
+                configuredBuilder(properties, properties.ocrReadTimeout()));
     }
 
     // The injected builder owns the transport; tests can bind MockRestServiceServer.
@@ -91,6 +90,11 @@ public class HttpAiClient implements AiClient {
 
     public HttpAiClient(AiProperties properties, RestClient.Builder builder,
             RestClient.Builder scenarioBuilder, RestClient.Builder evaluationBuilder, RestClient.Builder assistBuilder) {
+        this(properties, builder, scenarioBuilder, evaluationBuilder, assistBuilder, builder);
+    }
+
+    public HttpAiClient(AiProperties properties, RestClient.Builder builder, RestClient.Builder scenarioBuilder,
+            RestClient.Builder evaluationBuilder, RestClient.Builder assistBuilder, RestClient.Builder ocrBuilder) {
         this.restClient = builder.baseUrl(properties.baseUrl())
                 .defaultHeader("X-Internal-Api-Key", properties.apiKey()).build();
         this.scenarioRestClient = scenarioBuilder.baseUrl(properties.baseUrl())
@@ -98,6 +102,8 @@ public class HttpAiClient implements AiClient {
         this.evaluationRestClient = evaluationBuilder.baseUrl(properties.baseUrl())
                 .defaultHeader("X-Internal-Api-Key", properties.apiKey()).build();
         this.assistRestClient = assistBuilder.baseUrl(properties.baseUrl())
+                .defaultHeader("X-Internal-Api-Key", properties.apiKey()).build();
+        this.ocrRestClient = ocrBuilder.baseUrl(properties.baseUrl())
                 .defaultHeader("X-Internal-Api-Key", properties.apiKey()).build();
     }
 
@@ -464,41 +470,61 @@ public class HttpAiClient implements AiClient {
             throw new IllegalArgumentException("이미지가 한 장 이상 필요해요.");
         }
         try {
-            AiEnvelope<OcrExtractResult> envelope = restClient.post()
+            JsonNode node = ocrRestClient.post()
                     .uri(OCR_PATH)
                     .contentType(MediaType.MULTIPART_FORM_DATA)
                     .body(toMultipart(images))
                     .exchange((request, response) -> {
+                        JsonNode body;
                         try {
-                            return response.bodyTo(OCR_RESPONSE);
+                            body = response.bodyTo(JsonNode.class);
                         } catch (RuntimeException e) {
-                            // 프록시 오류 페이지처럼 JSON이 아닌 본문
-                            // 예외 메시지에 응답 본문이 섞일 수 있어 원인을 남기지 않아요.
+                            // 프록시 오류 페이지처럼 JSON이 아닌 본문. 본문이 섞일 수 있어 원인을 남기지 않아요.
                             throw new AiUnavailableException(
                                     "AI 서비스 OCR 응답을 읽지 못했어요. status=" + response.getStatusCode().value());
                         }
+                        if (body != null && body.isObject() && body.path("success").isBoolean()
+                                && !body.path("success").asBoolean()
+                                && OCR_FAILED.equals(body.path("error").path("code").asString(""))) {
+                            return null; // 상태 코드와 상관없이 OCR_FAILED는 "읽지 못함"으로 처리해요.
+                        }
+                        if (!response.getStatusCode().is2xxSuccessful()) {
+                            throw new AiUnavailableException(
+                                    "AI 서비스 OCR 처리에 실패했어요. status=" + response.getStatusCode().value());
+                        }
+                        return body;
                     });
-            return unwrap(envelope);
-        } catch (RestClientException | tools.jackson.core.JacksonException e) {
+            return node == null ? OcrExtractResult.failed() : parseOcr(node);
+        } catch (RestClientException | tools.jackson.core.JacksonException | IllegalArgumentException e) {
             // 예외 메시지에 응답 본문이 섞일 수 있어 원인을 남기지 않아요.
             throw new AiUnavailableException("AI 서비스 OCR 호출에 실패했어요.");
         }
     }
 
-    private static OcrExtractResult unwrap(AiEnvelope<OcrExtractResult> envelope) {
-        if (envelope == null) {
-            throw new AiUnavailableException("AI 서비스가 빈 OCR 응답을 보냈어요.");
+    /** 봉투와 필수 필드는 엄격하게, 분류(imageType·summary)는 없거나 null이어도 받아요. */
+    private static OcrExtractResult parseOcr(JsonNode node) {
+        if (!node.isObject() || !node.path("success").isBoolean()) {
+            throw new AiUnavailableException("AI 서비스 OCR 응답 형식이 올바르지 않아요.");
         }
-        if (!envelope.success()) {
-            if (OCR_FAILED.equals(envelope.errorCode())) {
-                return OcrExtractResult.failed();
-            }
-            throw new AiUnavailableException("AI 서비스 OCR 처리에 실패했어요. code=" + envelope.errorCode());
+        if (!node.path("success").asBoolean()) {
+            throw new AiUnavailableException("AI 서비스 OCR 처리에 실패했어요. code="
+                    + node.path("error").path("code").asString("UNKNOWN"));
         }
-        if (envelope.data() == null) {
-            throw new AiUnavailableException("AI 서비스 OCR 응답에 data가 없어요.");
+        JsonNode data = node.path("data");
+        if (!data.isObject() || !(data.path("recognizedText").isString() || data.path("recognizedText").isNull())
+                || !data.path("usable").isBoolean()) {
+            throw new AiUnavailableException("AI 서비스 OCR 응답에 data가 없거나 형식이 올바르지 않아요.");
         }
-        return envelope.data();
+        JsonNode type = data.path("imageType");
+        JsonNode summary = data.path("summary");
+        if (!(type.isMissingNode() || type.isNull() || type.isString())
+                || !(summary.isMissingNode() || summary.isNull() || summary.isString())) {
+            throw new AiUnavailableException("AI 서비스 OCR 분류 형식이 올바르지 않아요.");
+        }
+        return new OcrExtractResult(data.path("recognizedText").isNull() ? null : data.path("recognizedText").asString(),
+                data.path("usable").asBoolean(),
+                OcrImageType.from(type.isString() ? type.asString() : null),
+                summary.isString() ? summary.asString() : null);
     }
 
     /** reactive 의존성이 필요한 MultipartBodyBuilder 대신 파트마다 HttpEntity를 만들어요. */

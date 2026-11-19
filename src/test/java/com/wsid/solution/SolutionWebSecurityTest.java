@@ -132,10 +132,14 @@ class SolutionWebSecurityTest {
     @Import({SecurityConfig.class, SolutionSecurityConfig.class, GlobalExceptionHandler.class, LoginController.class,
             SolutionController.class, SolutionOwnerResolver.class, AnonymousOwnerIssuer.class,
             SensitiveDescriptionGuard.class, StartSolutionService.class, SolutionQueryService.class, SendSolutionMessageService.class,
-            com.wsid.solution.service.UpdateSolutionFactsService.class, com.wsid.solution.service.CompleteSolutionService.class})
+            com.wsid.solution.service.UpdateSolutionFactsService.class, com.wsid.solution.service.CompleteSolutionService.class,
+            com.wsid.solution.service.SolutionImageService.class})
     static class WebConfiguration {
         @Bean static ConversionService conversionService() { return ApplicationConversionService.getSharedInstance(); }
         @Bean AiClient aiClient() { return mock(AiClient.class); }
+        @Bean com.wsid.solution.service.SolutionImageAdviceService imageAdvice() {
+            return mock(com.wsid.solution.service.SolutionImageAdviceService.class); // 안내 없음(null)으로 응답
+        }
         @Bean LoginService loginService() { return mock(LoginService.class); }
         @Bean StringRedisTemplate redis() { return mock(StringRedisTemplate.class); }
         @Bean SolutionSessionRepository sessions() { return mock(SolutionSessionRepository.class); }
@@ -443,6 +447,85 @@ class SolutionWebSecurityTest {
         var request = post("/api/solutions/sessions/" + id + "/messages").session(session)
                 .contentType(MediaType.APPLICATION_JSON).content(body);
         return token == null ? request : request.header(token[0], token[1]);
+    }
+
+    // SOL-06 사진 입력
+    private static final byte[] PNG = {(byte) 137, 80, 78, 71, 13, 10, 26, 10, 0};
+
+    private org.springframework.test.web.servlet.RequestBuilder image(MockHttpSession session, String[] token, String id,
+            byte[] bytes, String requestId, String stateVersion) {
+        var request = org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                .multipart("/api/solutions/sessions/" + id + "/images")
+                .file(new org.springframework.mock.web.MockMultipartFile("images", "내 캡처.png", "image/png", bytes))
+                .session(session);
+        if (requestId != null) request.param("requestId", requestId);
+        if (stateVersion != null) request.param("stateVersion", stateVersion);
+        if (token != null) request.header(token[0], token[1]);
+        return request;
+    }
+
+    @Test void imageTextFlowsLikeTextMessageAndStoresOnlyPlaceholder() throws Exception {
+        var browser = new MockHttpSession(); var token = csrf(browser);
+        mvc.perform(start(browser, token)).andExpect(status().isCreated());
+        String recognized = "중고거래 판매자에게 50만원을 송금했어요";
+        when(ai.extractText(any())).thenReturn(new com.wsid.ai.dto.OcrExtractResult(recognized, true));
+        var facts = SolutionDomainTest.facts("YES", "UNKNOWN", "UNKNOWN", "UNKNOWN");
+        when(ai.extractSolutionFacts(any())).thenReturn(new com.wsid.ai.dto.SolutionExtractResult(facts,
+                facts.entrySet().stream().filter(e -> e.getValue().equals("UNKNOWN")).map(java.util.Map.Entry::getKey).toList()));
+        String requestId = java.util.UUID.randomUUID().toString();
+        mvc.perform(image(browser, token, "301", PNG, requestId, "0")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true)).andExpect(jsonPath("$.data.stateVersion").value(1))
+                .andExpect(jsonPath("$.data.facts.transferredMoney").value("YES"));
+        var captor = org.mockito.ArgumentCaptor.forClass(com.wsid.ai.dto.SolutionExtractRequest.class);
+        verify(ai).extractSolutionFacts(captor.capture());
+        assertEquals("사진 종류: 기타 자료\n인식 문자: " + recognized, captor.getValue().description());
+        assertTrue(savedMessages.stream().noneMatch(m -> m.getSafeContent() != null && m.getSafeContent().contains(recognized)));
+        assertTrue(savedMessages.stream().anyMatch(m -> "사진(기타 자료)을 제출했습니다.".equals(m.getSafeContent())));
+        mvc.perform(image(browser, token, "301", PNG, requestId, "1")).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("DUPLICATE_REQUEST"));
+    }
+
+    @Test void imageValidationOrderIsCsrfThenIdThenPartsThenOwnership() throws Exception {
+        var browser = new MockHttpSession(); var token = csrf(browser);
+        String requestId = java.util.UUID.randomUUID().toString();
+        mvc.perform(image(browser, null, "301", PNG, requestId, "0")).andExpect(status().isForbidden());
+        mvc.perform(image(browser, token, "abc", PNG, requestId, "0")).andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("SOLUTION_NOT_FOUND"));
+        mvc.perform(image(browser, token, "301", PNG, null, "0")).andExpect(status().isBadRequest());
+        mvc.perform(image(browser, token, "301", PNG, "not-uuid", "0")).andExpect(status().isBadRequest());
+        mvc.perform(image(browser, token, "301", PNG, requestId, "-1")).andExpect(status().isBadRequest());
+        mvc.perform(image(browser, token, "301", "<html>".getBytes(), requestId, "0")).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        mvc.perform(image(browser, token, "301", PNG, requestId, "0")).andExpect(status().isNotFound());
+        mvc.perform(start(browser, token)).andExpect(status().isCreated());
+        var stranger = new MockHttpSession(); var strangerToken = csrf(stranger);
+        mvc.perform(image(stranger, strangerToken, "301", PNG, requestId, "0")).andExpect(status().isNotFound());
+        verify(ai, never()).extractText(any());
+    }
+
+    @Test void imageOcrFailureAsksForManualInputButSensitiveTextIsAccepted() throws Exception {
+        var browser = new MockHttpSession(); var token = csrf(browser);
+        mvc.perform(start(browser, token)).andExpect(status().isCreated());
+        int before = savedMessages.size();
+        when(ai.extractText(any())).thenReturn(com.wsid.ai.dto.OcrExtractResult.failed());
+        mvc.perform(image(browser, token, "301", PNG, java.util.UUID.randomUUID().toString(), "0"))
+                .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("OCR_FAILED"));
+        when(ai.extractText(any())).thenReturn(new com.wsid.ai.dto.OcrExtractResult("", false));
+        mvc.perform(image(browser, token, "301", PNG, java.util.UUID.randomUUID().toString(), "0"))
+                .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("OCR_FAILED"));
+        verify(ai, never()).extractSolutionFacts(any());
+        assertEquals(before, savedMessages.size());
+        assertEquals(0, stored.getFirst().getStateVersion());
+        // 계좌번호가 찍힌 송금 내역 사진(usable=false)도 거부하지 않고 사실 추출로 이어가요. 원문은 저장하지 않아요.
+        when(ai.extractText(any())).thenReturn(new com.wsid.ai.dto.OcrExtractResult("110-123-456789 계좌로 50만원 이체",
+                false, com.wsid.ai.dto.OcrImageType.TRANSFER_RECEIPT, "송금 내역입니다."));
+        var facts = SolutionDomainTest.facts("YES", "UNKNOWN", "UNKNOWN", "UNKNOWN");
+        when(ai.extractSolutionFacts(any())).thenReturn(new com.wsid.ai.dto.SolutionExtractResult(facts,
+                facts.entrySet().stream().filter(e -> e.getValue().equals("UNKNOWN")).map(java.util.Map.Entry::getKey).toList()));
+        mvc.perform(image(browser, token, "301", PNG, java.util.UUID.randomUUID().toString(), "0"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.facts.transferredMoney").value("YES"));
+        assertTrue(savedMessages.stream().anyMatch(m -> "사진(송금 내역)을 제출했습니다.".equals(m.getSafeContent())));
+        assertTrue(savedMessages.stream().noneMatch(m -> m.getSafeContent() != null && m.getSafeContent().contains("110-123")));
     }
 
     @Test void anonymousChoiceIs200AndRestoresChoiceWithNoRawContent() throws Exception {
