@@ -32,6 +32,10 @@ import tools.jackson.databind.node.ObjectNode;
 
 @Service
 public class TrainingWorkflow {
+    /**
+     * 기본 사기 유형. AI 시나리오 생성(AI-03) 계약이 아직 이 유형만 받아서 AI 요청에는 이 값을 보내요.
+     * 저장·응답·리포트에 쓰는 유형은 만들어진 시나리오 내용으로 다시 정해요 (fraudTypeOf).
+     */
     private static final String TYPE = "SECONDHAND_TRADE";
     private static final int MAX_DISCOVERY_TURNS = 5;
     private static final List<TrainingResponses.Option> SAFE_OPTIONS = List.of(
@@ -134,10 +138,11 @@ public class TrainingWorkflow {
         validateScenarioContent(raw);
         var summary = summary(raw);
         String templateCode = BANK_NOTICE.templateCode().equals(template) ? template : null;
+        String fraudType = fraudTypeOf(raw); // 택배 시나리오면 SMISHING, 채용이면 JOB_SCAM ...
         return write(id, owner, request, TrainingPhase.DISCOVERY, locked -> {
-            locked.prepareScenario(TYPE, json.writeValueAsString(raw), templateCode, rules, Instant.now());
+            locked.prepareScenario(fraudType, json.writeValueAsString(raw), templateCode, rules, Instant.now());
             sessions.flush();
-            return new TrainingResponses.Scenario(id, "SCENARIO_READY", TYPE, summary, templateCode, locked.getStateVersion());
+            return new TrainingResponses.Scenario(id, "SCENARIO_READY", fraudType, summary, templateCode, locked.getStateVersion());
         });
     }
 
@@ -459,27 +464,39 @@ public class TrainingWorkflow {
                 .replaceAll("\\s+", " ").strip();
     }
 
+    /** 시나리오의 상대 역할·기관·제목·설명으로 모의 페이지 템플릿을 골라요 */
+    static MockPageTemplates.Template templateOf(JsonNode scenario) {
+        var persona = scenario.path("persona");
+        return MockPageTemplates.pick(persona.path("role").asString(""), persona.path("organization").asString(""),
+                scenario.path("title").asString(""), scenario.path("description").asString(""));
+    }
+
+    /** 시나리오 내용으로 사기 유형을 정해요. 정하지 못하면 기본 유형(TYPE) */
+    static String fraudTypeOf(JsonNode scenario) {
+        String code = templateOf(scenario).fraudTypeCode();
+        return code == null ? TYPE : code;
+    }
+
     static boolean containsMockLink(String text) {
         return text != null && Pattern.compile("\\[모의\\s*링크\\]").matcher(text).find();
     }
 
     static TrainingResponses.MockPage availablePage(TrainingSession session) {
         JsonNode scenario = session.getScenarioJson() == null ? null : new ObjectMapper().readTree(session.getScenarioJson());
-        // Every stored scenario can use this fixed local template when a link is requested.
+        // Every stored scenario gets a fixed local template chosen from its own words (MockPageTemplates).
         // Model-generated URLs or page HTML are never accepted.
         if (scenario == null) return BANK_NOTICE.templateCode().equals(session.getMockPageTemplateCode()) ? BANK_NOTICE : null;
-        var persona = scenario.path("persona");
-        String organization = actorLabel(persona.path("organization").asString(""));
-        String role = persona.path("role").asString("");
-        return new TrainingResponses.MockPage(BANK_NOTICE.templateCode(),
-                role.contains("채용") ? "지원자 본인 확인" : "본인 확인하기",
+        String organization = actorLabel(scenario.path("persona").path("organization").asString(""));
+        // 사기 유형에 맞는 화면 종류 (택배 → DELIVERY_ADDRESS, 채용 → RECRUIT_APPLICANT ...)
+        var template = templateOf(scenario);
+        return new TrainingResponses.MockPage(template.code(), template.title(),
                 organization.isBlank() ? BANK_NOTICE.institutionName() : safeGenerated(organization, 100),
-                BANK_NOTICE.screenCode(), true);
+                template.screenCode(), true);
     }
 
     private static TrainingResponses.MockPage requirePage(TrainingSession session) {
         var page = availablePage(session);
-        if (page == null) throw error(ErrorCode.TRAINING_NOT_FOUND);
+        if (page == null) throw error(ErrorCode.MOCK_PAGE_NOT_FOUND);
         return page;
     }
 
