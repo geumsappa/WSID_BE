@@ -137,6 +137,9 @@ class SolutionWebSecurityTest {
     static class WebConfiguration {
         @Bean static ConversionService conversionService() { return ApplicationConversionService.getSharedInstance(); }
         @Bean AiClient aiClient() { return mock(AiClient.class); }
+        @Bean com.wsid.solution.service.SolutionImageAdviceService imageAdvice() {
+            return mock(com.wsid.solution.service.SolutionImageAdviceService.class); // 안내 없음(null)으로 응답
+        }
         @Bean LoginService loginService() { return mock(LoginService.class); }
         @Bean StringRedisTemplate redis() { return mock(StringRedisTemplate.class); }
         @Bean SolutionSessionRepository sessions() { return mock(SolutionSessionRepository.class); }
@@ -475,9 +478,9 @@ class SolutionWebSecurityTest {
                 .andExpect(jsonPath("$.data.facts.transferredMoney").value("YES"));
         var captor = org.mockito.ArgumentCaptor.forClass(com.wsid.ai.dto.SolutionExtractRequest.class);
         verify(ai).extractSolutionFacts(captor.capture());
-        assertEquals(recognized, captor.getValue().description());
-        assertTrue(savedMessages.stream().noneMatch(m -> recognized.equals(m.getSafeContent())));
-        assertTrue(savedMessages.stream().anyMatch(m -> "사진 속 내용을 제출했습니다.".equals(m.getSafeContent())));
+        assertEquals("사진 종류: 기타 자료\n인식 문자: " + recognized, captor.getValue().description());
+        assertTrue(savedMessages.stream().noneMatch(m -> m.getSafeContent() != null && m.getSafeContent().contains(recognized)));
+        assertTrue(savedMessages.stream().anyMatch(m -> "사진(기타 자료)을 제출했습니다.".equals(m.getSafeContent())));
         mvc.perform(image(browser, token, "301", PNG, requestId, "1")).andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("DUPLICATE_REQUEST"));
     }
@@ -500,7 +503,7 @@ class SolutionWebSecurityTest {
         verify(ai, never()).extractText(any());
     }
 
-    @Test void imageOcrFailureAndSensitiveTextAskForManualInput() throws Exception {
+    @Test void imageOcrFailureAsksForManualInputButSensitiveTextIsAccepted() throws Exception {
         var browser = new MockHttpSession(); var token = csrf(browser);
         mvc.perform(start(browser, token)).andExpect(status().isCreated());
         int before = savedMessages.size();
@@ -509,10 +512,20 @@ class SolutionWebSecurityTest {
                 .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("OCR_FAILED"));
         when(ai.extractText(any())).thenReturn(new com.wsid.ai.dto.OcrExtractResult("", false));
         mvc.perform(image(browser, token, "301", PNG, java.util.UUID.randomUUID().toString(), "0"))
-                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("SENSITIVE_DATA_DETECTED"));
+                .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("OCR_FAILED"));
         verify(ai, never()).extractSolutionFacts(any());
         assertEquals(before, savedMessages.size());
         assertEquals(0, stored.getFirst().getStateVersion());
+        // 계좌번호가 찍힌 송금 내역 사진(usable=false)도 거부하지 않고 사실 추출로 이어가요. 원문은 저장하지 않아요.
+        when(ai.extractText(any())).thenReturn(new com.wsid.ai.dto.OcrExtractResult("110-123-456789 계좌로 50만원 이체",
+                false, com.wsid.ai.dto.OcrImageType.TRANSFER_RECEIPT, "송금 내역입니다."));
+        var facts = SolutionDomainTest.facts("YES", "UNKNOWN", "UNKNOWN", "UNKNOWN");
+        when(ai.extractSolutionFacts(any())).thenReturn(new com.wsid.ai.dto.SolutionExtractResult(facts,
+                facts.entrySet().stream().filter(e -> e.getValue().equals("UNKNOWN")).map(java.util.Map.Entry::getKey).toList()));
+        mvc.perform(image(browser, token, "301", PNG, java.util.UUID.randomUUID().toString(), "0"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.facts.transferredMoney").value("YES"));
+        assertTrue(savedMessages.stream().anyMatch(m -> "사진(송금 내역)을 제출했습니다.".equals(m.getSafeContent())));
+        assertTrue(savedMessages.stream().noneMatch(m -> m.getSafeContent() != null && m.getSafeContent().contains("110-123")));
     }
 
     @Test void anonymousChoiceIs200AndRestoresChoiceWithNoRawContent() throws Exception {

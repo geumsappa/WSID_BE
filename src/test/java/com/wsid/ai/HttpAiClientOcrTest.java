@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.sun.net.httpserver.HttpServer;
 import com.wsid.ai.dto.OcrExtractResult;
 import com.wsid.ai.dto.OcrImage;
+import com.wsid.ai.dto.OcrImageType;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
@@ -122,6 +123,46 @@ class HttpAiClientOcrTest {
     @Test
     void 인식한_문자는_toString에_남기지_않는다() {
         assertThat(new OcrExtractResult("010-1234-5678", true).toString()).doesNotContain("010");
+    }
+
+    @Test
+    void 분류와_요약을_받고_민감정보_원문은_그대로_돌려준다() {
+        respond(200, """
+                {"success":true,"data":{"recognizedText":"010-1234-5678 송금","usable":false,
+                "imageType":"TRANSFER_RECEIPT","summary":"송금 내역입니다."}}""");
+        var result = client.extractText(List.of(new OcrImage("a.png", "image/png", new byte[] {1})));
+        assertThat(result.imageType()).isEqualTo(OcrImageType.TRANSFER_RECEIPT);
+        assertThat(result.summary()).isEqualTo("송금 내역입니다.");
+        assertThat(result.recognizedText()).isEqualTo("010-1234-5678 송금");
+        assertThat(result.usable()).isFalse();
+        assertThat(result.hasRecognizedText()).isTrue();
+        assertThat(result.toString()).doesNotContain("010-1234", "송금 내역입니다.");
+    }
+
+    @Test
+    void 분류가_없거나_모르는_값이면_OTHER와_null로_받는다() {
+        for (String data : List.of("\"imageType\":null,\"summary\":null", "\"imageType\":\"FAX\",\"summary\":\"  \"", "")) {
+            respond(200, "{\"success\":true,\"data\":{\"recognizedText\":\"안내\",\"usable\":true"
+                    + (data.isEmpty() ? "" : "," + data) + "}}");
+            var result = client.extractText(List.of(new OcrImage("a.png", "image/png", new byte[] {1})));
+            assertThat(result.imageType()).isEqualTo(OcrImageType.OTHER);
+            assertThat(result.summary()).isNull();
+        }
+    }
+
+    @Test
+    void 분류_필드_타입이나_필수_필드가_틀리면_AI_사용불가로_바꾼다() {
+        for (String body : List.of(
+                "{\"success\":true,\"data\":{\"recognizedText\":\"안내\",\"usable\":true,\"imageType\":1}}",
+                "{\"success\":true,\"data\":{\"recognizedText\":\"안내\",\"usable\":true,\"summary\":[]}}",
+                "{\"success\":true,\"data\":{\"recognizedText\":\"안내\",\"usable\":true,\"summary\":\"" + "가".repeat(301) + "\"}}",
+                "{\"success\":true,\"data\":{\"recognizedText\":1,\"usable\":true}}",
+                "{\"success\":true,\"data\":{\"recognizedText\":\"안내\",\"usable\":\"true\"}}",
+                "{\"recognizedText\":\"안내\",\"usable\":true}")) {
+            respond(200, body);
+            assertThatThrownBy(() -> client.extractText(List.of(new OcrImage("a.png", "image/png", new byte[] {1}))))
+                    .as(body).isInstanceOf(AiUnavailableException.class);
+        }
     }
 
     private void respond(int status, String body) {

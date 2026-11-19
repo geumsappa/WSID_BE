@@ -19,7 +19,7 @@ AI-02(`POST /internal/ai/ocr/extract`)는 사진 속 글자를 읽고 민감정�
 ```
 프론트 ──SOL-06──▶ Spring ──AI-02──▶ FastAPI ──▶ Tesseract (kor+eng)
                    │                   └ 민감정보 검사 → usable
-                   └ 읽은 글자 → SOL-03 텍스트와 같은 흐름 (민감정보 확인 → AI-06 사실 추출 → 카드·질문)
+                   └ 종류·요약·읽은 글자 → AI-06 사실 추출 → 카드·질문 (사진은 민감정보 확인 건너뜀)
 ```
 
 | 책임 | Spring | FastAPI |
@@ -47,8 +47,8 @@ AI-02(`POST /internal/ai/ocr/extract`)는 사진 속 글자를 읽고 민감정�
 
 | 상황 | HTTP | 본문 | Spring `extractText` 결과 | SOL-06 응답 |
 |---|---|---|---|---|
-| 정상 | 200 | `{"success":true,"data":{"recognizedText":"...","usable":true}}` | 결과 반환 | 상담에 반영 |
-| 민감정보 | 200 | `{"success":true,"data":{"recognizedText":"","usable":false}}` | 결과 반환 | 400 `SENSITIVE_DATA_DETECTED` |
+| 정상 | 200 | `{"success":true,"data":{"recognizedText":"...","usable":true,"imageType":"SMS","summary":"..."}}` | 결과 반환 | 상담에 반영 |
+| 민감정보 | 200 | `{"success":true,"data":{"recognizedText":"<원문>","usable":false,...}}` | 결과 반환 | 거부하지 않고 상담에 반영 (SOL-06) |
 | 글자 없음 | 422 | `{"success":false,"error":{"code":"OCR_FAILED",...}}` | `OcrExtractResult.failed()` | 422 `OCR_FAILED` |
 | 키 오류 | 401 | `UNAUTHORIZED` | `AiUnavailableException` | 503 `AI_SERVICE_UNAVAILABLE` |
 | 파일 제한·형식 | 413/422 | `FILE_TOO_LARGE` / `INVALID_REQUEST` | `AiUnavailableException` | Spring이 먼저 막아서 보통 오지 않음 |
@@ -105,3 +105,16 @@ return unwrap(envelope);
 - 실제 FastAPI(Tesseract)와 통합 확인
 - 한글 캡처(문자·카톡) 인식률 확인. 낮으면 PaddleOCR 같은 한국어 OCR로 FastAPI `_recognize()`만 교체 검토 (응답 계약은 그대로)
 - WSID_AI `README.md`의 "AI-02 이미지 OCR은 아직 이 서버에 없어요"(291줄) 정리, 설명을 훈련용에서 피해 대응용으로 수정
+
+## 응답 필드 변경 (2026-11-19)
+
+FastAPI `feature/ocr-paddle` 기준이에요.
+
+| 필드 | 타입 | Spring 처리 |
+|---|---|---|
+| `recognizedText` | string | 민감정보를 가리지 않은 원문. 저장·로그 금지 |
+| `usable` | boolean | 받기만 하고 SOL-06은 이 값으로 거부하지 않아요 |
+| `imageType` | `SMS`·`MESSENGER_CHAT`·`TRANSFER_RECEIPT`·`WEB_PAGE`·`OTHER` 또는 null | 모르는 값·null·누락은 `OTHER` |
+| `summary` | string(300자 이하) 또는 null | 빈 문자열은 null. 300자 초과나 문자열이 아닌 값은 AI 사용 불가 |
+
+- Spring의 AI-02 응답 제한은 `AI_OCR_READ_TIMEOUT`(기본 30초)이에요. FastAPI가 OCR 15초 + 분류 3초를 쓰므로 기본 응답 제한(20초)보다 길게 뒀어요.

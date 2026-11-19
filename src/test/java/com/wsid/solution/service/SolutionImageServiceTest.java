@@ -8,6 +8,16 @@ import com.wsid.ai.AiClient;
 import com.wsid.ai.AiUnavailableException;
 import com.wsid.ai.dto.OcrExtractResult;
 import com.wsid.ai.dto.OcrImage;
+import com.wsid.ai.dto.OcrImageType;
+import com.wsid.ai.dto.SolutionAssistStatus;
+import com.wsid.solution.domain.SolutionSession;
+import com.wsid.solution.domain.SolutionStatus;
+import com.wsid.solution.dto.SolutionAssistant;
+import com.wsid.solution.dto.SolutionMessageResponse;
+import com.wsid.solution.repository.SolutionSessionRepository;
+import java.util.Map;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.SimpleTransactionStatus;
 import com.wsid.common.error.ApiException;
 import com.wsid.common.error.ErrorCode;
 import com.wsid.solution.domain.SolutionOwner;
@@ -25,7 +35,16 @@ class SolutionImageServiceTest {
 
     private final AiClient ai = mock(AiClient.class);
     private final SendSolutionMessageService messages = mock(SendSolutionMessageService.class);
-    private final SolutionImageService service = new SolutionImageService(ai, messages);
+    private final SolutionImageAdviceService advice = mock(SolutionImageAdviceService.class);
+    private final SolutionSessionRepository sessions = mock(SolutionSessionRepository.class);
+    private final PlatformTransactionManager manager = mock(PlatformTransactionManager.class);
+    private final SolutionImageService service;
+    private final SolutionOwner owner = SolutionOwner.member(7L);
+
+    {
+        when(manager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
+        service = new SolutionImageService(ai, messages, advice, sessions, manager);
+    }
     private final UUID requestId = UUID.randomUUID();
 
     private static MultipartFile file(String name, String type, byte[] bytes) {
@@ -70,9 +89,9 @@ class SolutionImageServiceTest {
         when(ai.extractText(any())).thenReturn(new OcrExtractResult("  거래 안내 문구  ", true));
         when(messages.sendRecognizedText(eq(301L), eq(requestId), eq(2), any(), any())).thenAnswer(i -> {
             verifyNoInteractions(ai); // OCR은 상담 확인 뒤 메시지 흐름 안에서 실행돼요
-            Supplier<String> recognize = i.getArgument(3);
-            assertEquals("거래 안내 문구", recognize.get());
-            return null;
+            Supplier<SendSolutionMessageService.RecognizedPhoto> recognize = i.getArgument(3);
+            assertEquals("사진 종류: 기타 자료\n인식 문자: 거래 안내 문구", recognize.get().content());
+            return saved(3);
         });
         Supplier<Optional<SolutionOwner>> owner = Optional::empty;
         service.send(301, requestId, 2, List.of(file("a.png", "image/png", PNG)), owner);
@@ -86,10 +105,62 @@ class SolutionImageServiceTest {
         when(ai.extractText(any())).thenReturn(new OcrExtractResult("   ", true));
         fails(ErrorCode.OCR_FAILED, () -> service.recognize(images, requestId));
         when(ai.extractText(any())).thenReturn(new OcrExtractResult("", false));
-        fails(ErrorCode.SENSITIVE_DATA_DETECTED, () -> service.recognize(images, requestId));
-        when(ai.extractText(any())).thenReturn(new OcrExtractResult("가".repeat(1001), true));
         fails(ErrorCode.OCR_FAILED, () -> service.recognize(images, requestId));
         when(ai.extractText(any())).thenThrow(new AiUnavailableException("down"));
         fails(ErrorCode.AI_SERVICE_UNAVAILABLE, () -> service.recognize(images, requestId));
+    }
+
+    @Test void sensitiveTextIsNotRejectedAndRecordKeepsOnlyTypeLabel() {
+        List<OcrImage> images = SolutionImageService.validate(List.of(file("a.png", "image/png", PNG)));
+        when(ai.extractText(any())).thenReturn(new OcrExtractResult("010-1234-5678 계좌 110-123-456789", false,
+                OcrImageType.TRANSFER_RECEIPT, "50만원을 송금한 내역입니다."));
+        var photo = service.recognize(images, requestId);
+        assertEquals("사진 종류: 송금 내역\n요약: 50만원을 송금한 내역입니다.\n인식 문자: 010-1234-5678 계좌 110-123-456789",
+                photo.content());
+        assertEquals("사진(송금 내역)을 제출했습니다.", photo.userMessage());
+        assertFalse(photo.toString().contains("010"));
+    }
+
+    @Test void extractInputFitsPublicLimitWithoutSplittingSurrogates() {
+        String longText = "가".repeat(2000);
+        String input = SolutionImageService.extractInput(new OcrExtractResult(longText, true, OcrImageType.SMS, "요약"));
+        assertEquals(1000, input.length());
+        assertTrue(input.startsWith("사진 종류: 문자 메시지\n요약: 요약\n인식 문자: 가"));
+        String emoji = "😀".repeat(600);
+        String cut = SolutionImageService.extractInput(new OcrExtractResult(emoji, true, OcrImageType.OTHER, null));
+        assertTrue(cut.length() <= 1000);
+        assertFalse(Character.isHighSurrogate(cut.charAt(cut.length() - 1)));
+        assertEquals("사진(기타 자료)을 제출했습니다.", SolutionImageService.userMessage(OcrImageType.OTHER));
+    }
+
+    @Test void attachesAdviceOnlyWhenSessionIsStillCurrent() {
+        when(messages.sendRecognizedText(anyLong(), any(), anyInt(), any(), any())).thenReturn(saved(3));
+        var assistant = new SolutionAssistant(SolutionAssistStatus.ANSWERED, "안내", List.of("REF_1"), null, null);
+        when(advice.optionalAdvice(any(), eq(requestId))).thenReturn(assistant);
+        SolutionSession session = mock(SolutionSession.class);
+        when(session.getStatus()).thenReturn(SolutionStatus.ACTIVE);
+        when(session.getStateVersion()).thenReturn(3);
+        when(sessions.findOwned(301L, owner)).thenReturn(Optional.of(session));
+        var response = service.send(301, requestId, 2, List.of(file("a.png", "image/png", PNG)), () -> Optional.of(owner));
+        assertEquals(assistant, response.assistant());
+        assertEquals("YES", response.facts().get("transferredMoney"));
+        // 안내를 기다리는 사이 다른 요청이 상태를 바꿨으면 오래된 안내는 붙이지 않아요.
+        when(session.getStateVersion()).thenReturn(4);
+        assertNull(service.send(301, requestId, 2, List.of(file("a.png", "image/png", PNG)), () -> Optional.of(owner)).assistant());
+    }
+
+    @Test void adviceFailureStillReturnsSavedFactsAndCards() {
+        when(messages.sendRecognizedText(anyLong(), any(), anyInt(), any(), any())).thenReturn(saved(3));
+        when(advice.optionalAdvice(any(), any())).thenReturn(null);
+        var response = service.send(301, requestId, 2, List.of(file("a.png", "image/png", PNG)), () -> Optional.of(owner));
+        assertEquals(3, response.stateVersion());
+        assertEquals("YES", response.facts().get("transferredMoney"));
+        assertNull(response.assistant());
+        verifyNoInteractions(sessions);
+    }
+
+    private static SolutionMessageResponse saved(int version) {
+        return new SolutionMessageResponse(Map.of("transferredMoney", "YES", "sharedInformation", "UNKNOWN",
+                "installedApp", "UNKNOWN", "contactContinues", "UNKNOWN"), List.of(), null, version);
     }
 }
