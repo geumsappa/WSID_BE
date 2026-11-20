@@ -186,15 +186,21 @@ public class TrainingWorkflow {
         var page = availablePage(session);
         boolean showPage = !pageSubmitted && page != null && (result.showPage() || containsMockLink(result.reply()) || keyScene) && !finish;
         boolean revealKeyScene = !session.isKeySceneShown() && (showPage || (keyScene && !finish));
-        String reply = finish ? ReviewedTexts.FINISHED
+        // AI가 대화를 마무리했으면(사용자가 끊었거나 시나리오 완료) 사기범의 마지막 한마디를 그대로 보여 주고,
+        // 최대 턴에 닿아 강제로 끝날 때만 안내 문구를 써요. 종료 안내는 프론트의 결과 카드가 이어서 보여 줘요.
+        String reply = finish ? (result.shouldFinish() && result.reply() != null && !result.reply().isBlank()
+                        ? result.reply() : ReviewedTexts.FINISHED)
                 : keyScene ? "거래 내용을 다시 확인해 주세요. 훈련용 확인 화면에서 의심스러운 점을 살펴볼 수 있어요."
                 : result.reply();
         var options = finish ? List.<TrainingResponses.Option>of() : optionsFor(reply);
         return write(id, owner, request, TrainingPhase.SIMULATION, locked -> {
             Instant now = Instant.now();
             int sequence = nextSequence(id);
+            // 이름·주소처럼 규칙으로 못 가리는 정보는 AI가 가린 문장(maskedInput)으로 바꿔서 저장해요 (원문은 DB에 남기지 않음)
+            String masked = choice == null ? result.maskedInput() : null;
+            String stored = masked != null ? masked : content;
             var input = choice != null ? TrainingMessage.selected(id, sequence, content, choice.code(), request.requestId(), now)
-                    : TrainingMessage.fromUser(id, TrainingPhase.SIMULATION, sequence, content, null, request.requestId(), now);
+                    : TrainingMessage.fromUser(id, TrainingPhase.SIMULATION, sequence, stored, null, request.requestId(), now);
             input.recordEvaluation(json.writeValueAsString(result.actions()));
             messages.save(input);
             var answer = TrainingMessage.fromAi(id, TrainingPhase.SIMULATION, sequence + 1, reply, now);
@@ -208,7 +214,7 @@ public class TrainingWorkflow {
             locked.recordSimulationTurn(revealKeyScene, finish, rules, now);
             sessions.flush();
             return new TrainingResponses.Message(new TrainingResponses.Reply(MessageSender.AI, reply, options),
-                    result.actions(), count, finish, showPage ? page : null, locked.getStateVersion());
+                    result.actions(), count, finish, showPage ? page : null, locked.getStateVersion(), masked);
         });
     }
 
@@ -312,7 +318,20 @@ public class TrainingWorkflow {
             if (nextScene < 1 || nextScene > Math.max(1, scenario.path("keyScenes").size())) throw error(ErrorCode.AI_SERVICE_UNAVAILABLE);
         }
         return new Suggestion(safeGenerated(response.path("reply").asString(), 1000), List.copyOf(actions),
-                response.path("shouldFinish").asBoolean(), response.path("mockPage").isObject(), nextScene);
+                response.path("shouldFinish").asBoolean(), response.path("mockPage").isObject(), nextScene,
+                maskedInputOf(response.path("maskedInput")));
+    }
+
+    /** AI가 돌려준 가린 문장을 한 번 더 숫자 패턴으로 가려서 써요. 이상하면(비었거나 길거나 링크 포함) 쓰지 않아요 */
+    static String maskedInputOf(JsonNode node) {
+        if (node == null || !node.isString()) return null;
+        String text = node.asString("").strip();
+        if (text.isEmpty() || text.length() > 300) return null;
+        try {
+            return simulationInput(text);
+        } catch (ApiException e) {
+            return null;
+        }
     }
 
     static List<TrainingResponses.Option> optionsFor(String reply) {
@@ -344,9 +363,14 @@ public class TrainingWorkflow {
                 evaluation == null ? List.of("개인 자료를 요구받으면 직접 찾은 공식 채널에서 요청을 확인하세요.") : evaluation.recommendations());
     }
 
-    private record Suggestion(String reply, List<String> actions, boolean shouldFinish, boolean showPage, Integer nextScene) {
+    /** maskedInput: AI가 이름·주소 등을 가린 사용자 문장. 있으면 원문 대신 저장하고 화면에도 이 값을 보여 줘요 */
+    private record Suggestion(String reply, List<String> actions, boolean shouldFinish, boolean showPage, Integer nextScene,
+            String maskedInput) {
+        private Suggestion(String reply, List<String> actions, boolean shouldFinish, boolean showPage, Integer nextScene) {
+            this(reply, actions, shouldFinish, showPage, nextScene, null);
+        }
         private Suggestion(String reply, List<String> actions, boolean shouldFinish, boolean showPage) {
-            this(reply, actions, shouldFinish, showPage, null);
+            this(reply, actions, shouldFinish, showPage, null, null);
         }
     }
 

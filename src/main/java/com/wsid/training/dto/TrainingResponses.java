@@ -46,8 +46,9 @@ public final class TrainingResponses {
             this(phase, firstMessage, stateVersion, availableOptions, null);
         }
     }
+    /** maskedInput: 이름·주소 등을 가린 내 메시지 (가릴 게 없으면 null). 프론트는 내 말풍선을 이 값으로 바꿔 보여 줘요 */
     public record Message(Reply reply, List<String> recognizedActions, int turnCount, boolean shouldFinish,
-            MockPage mockPage, int stateVersion) {}
+            MockPage mockPage, int stateVersion, String maskedInput) {}
     public record MockPage(String templateCode, String title, String institutionName, String screenCode,
             boolean isSimulation) {
         public static MockPage bankNotice() {
