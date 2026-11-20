@@ -186,7 +186,10 @@ public class TrainingWorkflow {
         var page = availablePage(session);
         boolean showPage = !pageSubmitted && page != null && (result.showPage() || containsMockLink(result.reply()) || keyScene) && !finish;
         boolean revealKeyScene = !session.isKeySceneShown() && (showPage || (keyScene && !finish));
-        String reply = finish ? ReviewedTexts.FINISHED
+        // AI가 대화를 마무리했으면(사용자가 끊었거나 시나리오 완료) 사기범의 마지막 한마디를 그대로 보여 주고,
+        // 최대 턴에 닿아 강제로 끝날 때만 안내 문구를 써요. 종료 안내는 프론트의 결과 카드가 이어서 보여 줘요.
+        String reply = finish ? (result.shouldFinish() && result.reply() != null && !result.reply().isBlank()
+                        ? result.reply() : ReviewedTexts.FINISHED)
                 : keyScene ? "거래 내용을 다시 확인해 주세요. 훈련용 확인 화면에서 의심스러운 점을 살펴볼 수 있어요."
                 : result.reply();
         var options = finish ? List.<TrainingResponses.Option>of() : optionsFor(reply);
