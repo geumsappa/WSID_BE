@@ -1,0 +1,31 @@
+package com.wsid.training.dto;
+
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.PositiveOrZero;
+import jakarta.validation.constraints.Size;
+import java.util.UUID;
+
+public final class TrainingRequests {
+    private TrainingRequests() {}
+
+    public interface Mutation {
+        UUID requestId();
+        Integer stateVersion();
+    }
+
+    public record Versioned(@NotNull UUID requestId, @NotNull @PositiveOrZero Integer stateVersion)
+            implements Mutation {}
+    public record Discovery(@NotNull UUID requestId, @NotNull @PositiveOrZero Integer stateVersion,
+            @NotBlank @Size(max = 1000) String content) implements Mutation {}
+    public record Message(@NotNull UUID requestId, @NotNull @PositiveOrZero Integer stateVersion,
+            @NotNull MessageKind inputKind, @Size(max = 1000) String content, @Size(max = 100) String selectedCode)
+            implements Mutation {}
+    public enum MessageKind { TEXT, CHOICE }
+    public record Action(@NotNull UUID requestId, @NotNull @PositiveOrZero Integer stateVersion,
+            @NotNull ActionCode actionCode, ActionMeta actionMeta) implements Mutation {}
+    public enum ActionCode { MOCK_PAGE_OPEN, MOCK_PAGE_CLOSE, MOCK_LOGIN_ATTEMPT, OFFICIAL_CHANNEL_CHECK }
+    public record ActionMeta(String templateCode, String screenCode) {}
+    public record Finish(@NotNull UUID requestId, @NotNull @PositiveOrZero Integer stateVersion,
+            @NotBlank @Size(max = 40) String reason) implements Mutation {}
+}
