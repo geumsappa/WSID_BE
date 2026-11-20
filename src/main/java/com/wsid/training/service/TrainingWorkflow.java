@@ -472,12 +472,16 @@ public class TrainingWorkflow {
     static TrainingResponses.ScenarioSummary summary(JsonNode scenario) {
         var persona = scenario.path("persona");
         String organization = actorLabel(persona.path("organization").asString(""));
-        if (List.of("없음", "개인", "해당 없음").contains(organization)) organization = "";
+        // "개인", "개인 구매자"처럼 기관이 아니라 개인이면 기관 이름으로 쓰지 않아요
+        if (List.of("없음", "해당 없음").contains(organization) || organization.startsWith("개인")) organization = "";
         String role = actorLabel(persona.path("role").asString(""));
         String name = actorLabel(persona.path("name").asString(""));
+        // 기관 이름과 역할이 겹치면 한 번만 써요 (예: "한결배송 배송팀" + "배송팀" → "한결배송 배송팀")
         String sender = !organization.isBlank()
-                ? (role.contains(organization) ? role : (organization + " " + role).strip())
-                : (!name.isBlank() ? name : "상대방");
+                ? (role.contains(organization) ? role
+                    : !role.isBlank() && organization.contains(role) ? organization
+                    : (organization + " " + role).strip())
+                : (!name.isBlank() ? name : !role.isBlank() ? role : "상대방");
         return new TrainingResponses.ScenarioSummary(safeGenerated(scenario.path("title").asString(), 200),
                 safeGenerated(scenario.path("description").asString(), 1000), safeGenerated(sender, 200),
                 organization.isBlank() ? null : safeGenerated(organization, 100));
