@@ -16,8 +16,13 @@ public final class TrainingRequests {
 
     public record Versioned(@NotNull UUID requestId, @NotNull @PositiveOrZero Integer stateVersion)
             implements Mutation {}
+    /** quickStart: 홈의 '바로 체험하기'로 고른 상황이면 true. 추가 질문 없이 바로 시나리오를 만들 수 있게 해요 */
     public record Discovery(@NotNull UUID requestId, @NotNull @PositiveOrZero Integer stateVersion,
-            @NotBlank @Size(max = 1000) String content) implements Mutation {}
+            @NotBlank @Size(max = 1000) String content, Boolean quickStart) implements Mutation {
+        public Discovery(UUID requestId, Integer stateVersion, String content) {
+            this(requestId, stateVersion, content, null);
+        }
+    }
     public record Message(@NotNull UUID requestId, @NotNull @PositiveOrZero Integer stateVersion,
             @NotNull MessageKind inputKind, @Size(max = 1000) String content, @Size(max = 100) String selectedCode)
             implements Mutation {}
