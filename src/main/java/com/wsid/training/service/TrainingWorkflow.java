@@ -86,11 +86,9 @@ public class TrainingWorkflow {
         int count = session.getDiscoveryTurnCount() + 1;
         String question;
         boolean ready;
-        // 빠른 시작은 사용자가 상황을 직접 골랐으니, 첫 답변만으로 시나리오를 만들 수 있어요
-        boolean quickStart = Boolean.TRUE.equals(request.quickStart()) && count == 1;
         if (ai.isMock()) {
             facts.put("activity", TYPE);
-            ready = count >= 3 || quickStart;
+            ready = count >= 3;
             question = ready ? "답변을 바탕으로 가상 훈련을 만들 수 있어요."
                     : count == 1 ? "상대가 어떤 요청을 했나요?" : "그 요청을 받고 어떻게 대응하셨나요?";
         } else {
@@ -101,7 +99,7 @@ public class TrainingWorkflow {
             }
             facts.setAll((ObjectNode) response.path("facts"));
             safeGenerated(facts.toString(), 16000);
-            ready = response.path("canGenerateScenario").asBoolean() || count == MAX_DISCOVERY_TURNS || quickStart;
+            ready = response.path("canGenerateScenario").asBoolean() || count == MAX_DISCOVERY_TURNS;
             question = ready ? "답변을 바탕으로 가상 훈련을 만들 수 있어요."
                     : safeGenerated(response.path("nextQuestion").asString(), 1000);
         }
