@@ -26,15 +26,27 @@ public final class TrainingResponses {
     }
     public record Detail(long trainingId, String phase, TrainingStatus status, int stateVersion, int turnCount,
             List<HistoryMessage> messages, JsonNode availableOptions, MockPage mockPage, ScenarioSummary scenario,
-            boolean canGenerateScenario, boolean shouldFinish, boolean mockPageSubmitted) {}
+            boolean canGenerateScenario, boolean shouldFinish, boolean mockPageSubmitted, boolean mockAppClicked) {
+        public Detail(long trainingId, String phase, TrainingStatus status, int stateVersion, int turnCount,
+                List<HistoryMessage> messages, JsonNode availableOptions, MockPage mockPage, ScenarioSummary scenario,
+                boolean canGenerateScenario, boolean shouldFinish, boolean mockPageSubmitted) {
+            this(trainingId, phase, status, stateVersion, turnCount, messages, availableOptions, mockPage, scenario,
+                    canGenerateScenario, shouldFinish, mockPageSubmitted, false);
+        }
+    }
     public record MockAttachment(String type, String title) {}
     public record Option(String code, String label, MockAttachment mockAttachment) {
         public Option(String code, String label) { this(code, label, null); }
     }
     public record Reply(MessageSender sender, String content, List<Option> options) {}
     public record Discovery(FirstMessage reply, int discoveryTurnCount, boolean canGenerateScenario, int stateVersion) {}
-    public record ScenarioSummary(String title, String description, String senderName, String organizationName) {
-        public ScenarioSummary(String title, String description) { this(title, description, null, null); }
+    /** channel: 대화 화면 모양을 고르는 코드 (SMS, MESSENGER, MARKET, EMAIL, SNS). 모르면 null */
+    public record ScenarioSummary(String title, String description, String senderName, String organizationName,
+            String channel) {
+        public ScenarioSummary(String title, String description) { this(title, description, null, null, null); }
+        public ScenarioSummary(String title, String description, String senderName, String organizationName) {
+            this(title, description, senderName, organizationName, null);
+        }
     }
     public record Scenario(long trainingId, String phase, String fraudTypeCode, ScenarioSummary scenario,
             String mockPageTemplateCode, int stateVersion) {}

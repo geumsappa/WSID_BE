@@ -284,6 +284,8 @@ public class TrainingWorkflow {
             if (!response.path(field).isArray()) throw error(ErrorCode.AI_SERVICE_UNAVAILABLE);
         }
         if (!response.path("mockPageEvaluation").isObject()) throw error(ErrorCode.AI_SERVICE_UNAVAILABLE);
+        // 리포트 타임라인(답변 번호별 피드백)은 많아야 몇 칸이에요. 지나치게 길면 잘못된 응답으로 봐요
+        if (response.path("turnFeedback").size() > 10) throw error(ErrorCode.AI_SERVICE_UNAVAILABLE);
         safeGenerated(response.path("overallFeedback").asString(), 4000);
         safeGenerated(response.toString(), 50000);
         try {
@@ -308,7 +310,8 @@ public class TrainingWorkflow {
         payload.put("messages", conversation(session.getId()).stream().filter(m -> "SIMULATION".equals(m.get("phase"))).toList());
         payload.put("userInput", content);
         payload.put("turnCount", count);
-        if (scenario.path("currentScene").isNumber()) payload.put("currentScene", scenario.path("currentScene").asInt());
+        // 장면 번호는 항상 보내요. 없으면 AI가 대사 글자로 장면을 추측해야 해서 장면이 튈 수 있어요 (첫 턴은 1장면)
+        payload.put("currentScene", scenario.path("currentScene").isNumber() ? scenario.path("currentScene").asInt() : 1);
         var response = ai.request("/simulation/reply", payload);
         if (!response.path("recognizedActions").isArray() || !response.path("shouldFinish").isBoolean()) {
             throw error(ErrorCode.AI_SERVICE_UNAVAILABLE);
@@ -495,7 +498,18 @@ public class TrainingWorkflow {
                 : (!name.isBlank() ? name : !role.isBlank() ? role : "상대방");
         return new TrainingResponses.ScenarioSummary(safeGenerated(scenario.path("title").asString(), 200),
                 safeGenerated(scenario.path("description").asString(), 1000), safeGenerated(sender, 200),
-                organization.isBlank() ? null : safeGenerated(organization, 100));
+                organization.isBlank() ? null : safeGenerated(organization, 100),
+                channelCode(scenario.path("channel").asString("")));
+    }
+
+    /** AI 시나리오의 채널(한글)을 화면용 고정 코드로 바꿔요. 모델 글자를 그대로 내보내지 않아요 */
+    static String channelCode(String channel) {
+        if (channel.contains("중고")) return "MARKET";
+        if (channel.contains("문자")) return "SMS";
+        if (channel.contains("이메일") || channel.contains("메일")) return "EMAIL";
+        if (channel.contains("SNS")) return "SNS";
+        if (channel.contains("메신저")) return "MESSENGER";
+        return null;
     }
 
     private static String actorLabel(String value) {
