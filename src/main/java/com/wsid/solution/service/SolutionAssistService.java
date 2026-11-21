@@ -54,7 +54,7 @@ public class SolutionAssistService {
         SolutionFacts updated = facts;
         Result result;
         try {
-            result = within(deadline, () -> evaluate(request, updated, previous, deadline));
+            result = within(deadline, () -> evaluate(request, updated, previous, before.fraudType(), deadline));
         } catch (AiUnavailableException e) { throw error(ErrorCode.AI_SERVICE_UNAVAILABLE); }
         if (!owner.get().filter(resolved::equals).isPresent()) throw error(ErrorCode.SOLUTION_NOT_FOUND);
         try {
@@ -86,11 +86,11 @@ public class SolutionAssistService {
             throw classify(id, resolved, request);
         }
     }
-    private Result evaluate(SendSolutionMessageRequest input, SolutionFacts facts, PendingAssist previous, long deadline) {
+    private Result evaluate(SendSolutionMessageRequest input, SolutionFacts facts, PendingAssist previous, String fraudType, long deadline) {
         boolean first = input.purpose() == SendSolutionMessageRequest.Purpose.QUESTION;
         var plan = ai.plan(new SolutionAssistPlanRequest(first ? input.content() : null,
                 first ? null : previous.questionIntent(), facts.toKeyMap(), first ? List.of() : previous.askedFactKeys(),
-                first ? 3 : previous.remainingClarifications(), UUID.randomUUID()));
+                first ? 3 : previous.remainingClarifications(), UUID.randomUUID(), fraudType));
         if (plan.status() == SolutionAssistStatus.NEED_USER_INPUT) {
             var keys = new ArrayList<>(first ? List.<String>of() : previous.askedFactKeys());
             String key = plan.clarification().factKey(); keys.add(key);
@@ -103,7 +103,7 @@ public class SolutionAssistService {
         if (approved.isEmpty()) return unable(SolutionAssistReason.NO_EVIDENCE);
         checkDeadline(deadline);
         var answer = ai.answer(new SolutionAssistAnswerRequest(first ? input.content() : null, plan.questionIntent(),
-                facts.toKeyMap(), approved, UUID.randomUUID()));
+                facts.toKeyMap(), approved, UUID.randomUUID(), fraudType));
         if (answer.status() == SolutionAssistStatus.UNABLE_TO_ANSWER) return unable(answer.reasonCode());
         return new Result(null, new SolutionAssistant(answer.status(), answer.answer(), answer.referenceCodes(), null, null));
     }
@@ -118,7 +118,7 @@ public class SolutionAssistService {
             if (pending != null) throw error(ErrorCode.ASSIST_QUESTION_PENDING);
         } else if (pending == null || !pending.questionId().equals(request.questionId())
                 || s.readFacts().get(pending.fact()) != FactValue.UNKNOWN) throw error(ErrorCode.INVALID_REQUEST);
-        return new Snapshot(s.readFacts(), pending);
+        return new Snapshot(s.readFacts(), pending, s.getFraudTypeCode());
     }
     private TransactionTemplate transaction(boolean readOnly, long deadline) {
         checkDeadline(deadline);
@@ -156,7 +156,7 @@ public class SolutionAssistService {
     }
     private static void checkDeadline(long deadline) { if (System.nanoTime() >= deadline) throw error(ErrorCode.AI_SERVICE_UNAVAILABLE); }
     private static ApiException error(ErrorCode code) { return new ApiException(code); }
-    private record Snapshot(SolutionFacts facts, PendingAssist pending) {}
+    private record Snapshot(SolutionFacts facts, PendingAssist pending, String fraudType) {}
     private record Result(PendingAssist pending, SolutionAssistant assistant) {}
     private static class Race extends RuntimeException {}
 }

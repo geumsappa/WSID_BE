@@ -26,6 +26,27 @@ class SolutionAssistDtoTest {
     private static final UUID ID = UUID.randomUUID();
 
     @Test
+    void historyIsValidatedAndNotLogged() {
+        var turn = new com.wsid.ai.dto.SolutionAssistHistoryTurn("USER", "비밀이력");
+        var request = new SolutionAssistPlanRequest("질문", null, FACTS, List.of(), 3, ID, null, List.of(turn));
+        var answer = new SolutionAssistAnswerRequest("질문", SolutionAssistIntent.GENERAL, FACTS, REFS, ID, null, List.of(turn));
+        assertEquals(List.of(turn), request.history());
+        assertEquals(List.of(turn), answer.history());
+        for (Object value : List.of(turn, request, answer)) assertFalse(value.toString().contains("비밀이력"));
+        assertTrue(request.toString().contains("historyCount=1"));
+        assertDoesNotThrow(() -> new com.wsid.ai.dto.SolutionAssistHistoryTurn("AI", "x".repeat(2000)));
+        invalid(() -> new com.wsid.ai.dto.SolutionAssistHistoryTurn("SYSTEM", "text"));
+        invalid(() -> new com.wsid.ai.dto.SolutionAssistHistoryTurn("USER", " "));
+        invalid(() -> new com.wsid.ai.dto.SolutionAssistHistoryTurn("USER", "x".repeat(2001)));
+        assertDoesNotThrow(() -> new SolutionAssistPlanRequest("질문", null, FACTS, List.of(), 3, ID, null, java.util.Collections.nCopies(10, turn)));
+        invalid(() -> new SolutionAssistPlanRequest("질문", null, FACTS, List.of(), 3, ID, null, java.util.Collections.nCopies(11, turn)));
+        invalid(() -> new SolutionAssistAnswerRequest("질문", SolutionAssistIntent.GENERAL, FACTS, REFS, ID, null, java.util.Collections.nCopies(11, turn)));
+        var withNull = new ArrayList<com.wsid.ai.dto.SolutionAssistHistoryTurn>();
+        withNull.add(null);
+        invalid(() -> new SolutionAssistPlanRequest("질문", null, FACTS, List.of(), 3, ID, null, withNull));
+    }
+
+    @Test
     void planRequestRules() {
         assertDoesNotThrow(() -> new SolutionAssistPlanRequest("질문", null, FACTS, List.of(), 3, ID));
         assertDoesNotThrow(() -> new SolutionAssistPlanRequest(null, SolutionAssistIntent.GENERAL, FACTS,

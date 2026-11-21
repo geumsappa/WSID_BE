@@ -112,6 +112,17 @@ class SolutionMessageDatabaseTest {
         assertEquals(4, messages.answeredUnknownKeys(id).size());
     }
 
+    @Test void textFillsMissingFraudTypeOnceAndKeepsFirstValue() {
+        long id = start();
+        assertNull(jdbc.queryForObject("SELECT fraud_type_code FROM solution_sessions WHERE id = ?", String.class, id));
+        var facts = SolutionDomainTest.facts("UNKNOWN", "UNKNOWN", "UNKNOWN", "UNKNOWN");
+        when(ai.extractSolutionFacts(any())).thenReturn(new SolutionExtractResult(facts, List.copyOf(facts.keySet()), "SECONDHAND_TRADE"),
+                new SolutionExtractResult(facts, List.copyOf(facts.keySet()), "SMISHING"));
+        send(id, text(UUID.randomUUID(), 0, "중고거래 판매자가 연락이 안 돼요"));
+        assertEquals("SECONDHAND_TRADE", jdbc.queryForObject("SELECT fraud_type_code FROM solution_sessions WHERE id = ?", String.class, id));
+        send(id, text(UUID.randomUUID(), 1, "문자 링크도 눌렀어요"));
+        assertEquals("SECONDHAND_TRADE", jdbc.queryForObject("SELECT fraud_type_code FROM solution_sessions WHERE id = ?", String.class, id));
+    }
     @Test void repeatedUnknownTextIncreasesVersionOnceWithoutRepeatingQuestionOrStoringRawText() {
         long id = start();
         String secret = "특정인 이름을 포함한 비공개 문장";

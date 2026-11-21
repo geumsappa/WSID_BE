@@ -122,11 +122,14 @@ public class SendSolutionMessageService {
             Supplier<Optional<SolutionOwner>> owner, String userMessage, boolean checkSensitive) {
         Snapshot snapshot = read.execute(tx -> snapshot(id, resolved, request));
         SolutionFacts extracted = null;
+        String fraudType = null;
         if (request.isText()) {
             if (checkSensitive) guard.check(request.content());
             var aiRequest = new SolutionExtractRequest(request.content(), snapshot.facts().knownValues(), request.requestId());
             try {
-                extracted = SolutionFacts.fromStrings(ai.extractSolutionFacts(aiRequest).facts());
+                var result = ai.extractSolutionFacts(aiRequest);
+                extracted = SolutionFacts.fromStrings(result.facts());
+                fraudType = result.fraudType();
             } catch (AiUnavailableException e) {
                 log.info("SOL-03 AI-06 사용 불가 requestId={}", request.requestId());
                 throw new ApiException(ErrorCode.AI_SERVICE_UNAVAILABLE);
@@ -134,8 +137,9 @@ public class SendSolutionMessageService {
         }
         if (!resolved.equals(existingOwner(owner))) throw new ApiException(ErrorCode.SOLUTION_NOT_FOUND);
         SolutionFacts result = extracted;
+        String suggestedType = fraudType;
         try {
-            return write.execute(tx -> apply(id, resolved, request, result, userMessage));
+            return write.execute(tx -> apply(id, resolved, request, result, suggestedType, userMessage));
         } catch (ConcurrentUpdate | OptimisticLockingFailureException | PessimisticLockingFailureException e) {
             throw classifyRace(id, resolved, request);
         } catch (DataIntegrityViolationException e) {
@@ -166,7 +170,7 @@ public class SendSolutionMessageService {
     }
 
     private SolutionMessageResponse apply(long id, SolutionOwner owner, SendSolutionMessageRequest request,
-            SolutionFacts extracted, String userMessage) {
+            SolutionFacts extracted, String fraudType, String userMessage) {
         Snapshot before = snapshot(id, owner, request);
         SolutionFacts updated;
         if (request.isText()) {
@@ -193,7 +197,7 @@ public class SendSolutionMessageService {
         }
         Instant now = clock.instant();
         if (sessions.compareAndSet(id, owner, request.stateVersion(),
-                SolutionSession.prepareUpdate(updated, selectedCards, question, now)) != 1) throw new ConcurrentUpdate();
+                SolutionSession.prepareUpdate(updated, selectedCards, question, fraudType, now)) != 1) throw new ConcurrentUpdate();
         int sequence = Math.addExact(messages.lastSequence(id), 1);
         messages.save(request.isText()
                 ? SolutionMessage.of(id, MessageSender.USER, InputKind.TEXT, sequence,

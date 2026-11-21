@@ -14,10 +14,19 @@ import java.util.UUID;
  * 첫 PLAN의 questionIntent를 보내요. Python은 요청 사이 상태를 저장하지 않아요.
  */
 @JsonInclude(JsonInclude.Include.ALWAYS)
-@JsonPropertyOrder({"phase", "question", "questionIntent", "facts", "askedFactKeys", "remainingClarifications"})
+@JsonPropertyOrder({"phase", "question", "questionIntent", "facts", "askedFactKeys", "remainingClarifications", "fraudType", "history"})
 public record SolutionAssistPlanRequest(
         String question, SolutionAssistIntent questionIntent, Map<String, String> facts,
-        List<String> askedFactKeys, int remainingClarifications, @JsonIgnore UUID requestId) {
+        List<String> askedFactKeys, int remainingClarifications, @JsonIgnore UUID requestId, String fraudType, List<SolutionAssistHistoryTurn> history) {
+
+    public SolutionAssistPlanRequest(String question, SolutionAssistIntent questionIntent, Map<String, String> facts,
+            List<String> askedFactKeys, int remainingClarifications, UUID requestId) {
+        this(question, questionIntent, facts, askedFactKeys, remainingClarifications, requestId, null, null);
+    }
+    public SolutionAssistPlanRequest(String question, SolutionAssistIntent questionIntent, Map<String, String> facts,
+            List<String> askedFactKeys, int remainingClarifications, UUID requestId, String fraudType) {
+        this(question, questionIntent, facts, askedFactKeys, remainingClarifications, requestId, fraudType, null);
+    }
     public static final int MAX_QUESTION_LENGTH = 1_000;
     public static final int MAX_CLARIFICATIONS = 3;
 
@@ -35,6 +44,12 @@ public record SolutionAssistPlanRequest(
             }
         }
         askedFactKeys = List.copyOf(askedFactKeys);
+        fraudType = SolutionFraudType.require(fraudType);
+        if (history != null) {
+            if (history.size() > 10 || history.stream().anyMatch(java.util.Objects::isNull))
+                throw new IllegalArgumentException("대화 이력은 최대 10개이고 빈 항목을 넣을 수 없어요.");
+            history = List.copyOf(history);
+        }
     }
 
     @JsonProperty("phase")
@@ -46,6 +61,7 @@ public record SolutionAssistPlanRequest(
     public String toString() {
         return "SolutionAssistPlanRequest[hasQuestion=" + (question != null) + ", questionIntent=" + questionIntent
                 + ", askedCount=" + askedFactKeys.size() + ", remainingClarifications=" + remainingClarifications
+                + ", fraudType=" + fraudType + ", historyCount=" + (history == null ? 0 : history.size())
                 + ", requestId=" + requestId + "]";
     }
 }
