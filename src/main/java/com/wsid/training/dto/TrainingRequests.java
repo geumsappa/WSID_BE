@@ -24,7 +24,8 @@ public final class TrainingRequests {
     public enum MessageKind { TEXT, CHOICE }
     public record Action(@NotNull UUID requestId, @NotNull @PositiveOrZero Integer stateVersion,
             @NotNull ActionCode actionCode, ActionMeta actionMeta) implements Mutation {}
-    public enum ActionCode { MOCK_PAGE_OPEN, MOCK_PAGE_CLOSE, MOCK_LOGIN_ATTEMPT, OFFICIAL_CHANNEL_CHECK }
+    /** MOCK_APP_CLICK: 대화 속 가상 앱 설치 링크를 누름. 실제 설치는 없고 눌렀는지만 기록해요. */
+    public enum ActionCode { MOCK_PAGE_OPEN, MOCK_PAGE_CLOSE, MOCK_LOGIN_ATTEMPT, OFFICIAL_CHANNEL_CHECK, MOCK_APP_CLICK }
     public record ActionMeta(String templateCode, String screenCode) {}
     public record Finish(@NotNull UUID requestId, @NotNull @PositiveOrZero Integer stateVersion,
             @NotBlank @Size(max = 40) String reason) implements Mutation {}

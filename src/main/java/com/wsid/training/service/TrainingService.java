@@ -136,10 +136,12 @@ public class TrainingService {
                 ? TrainingWorkflow.availablePage(session) : null;
         boolean ready = session.getPhase() == TrainingPhase.DISCOVERY && session.getContextFactsJson() != null
                 && json.readTree(session.getContextFactsJson()).path("canGenerateScenario").asBoolean();
+        var actions = messages.findByTrainingIdOrderBySequenceNoAsc(id).stream()
+                .filter(message -> message.getInputKind() == InputKind.ACTION).map(TrainingMessage::getActionCode).toList();
+        // mockAppClicked: 새로고침·이어서 하기 뒤에도 앱 설치 카드를 '눌렀어요' 상태로 보여 주려고 내려줘요
         return new TrainingResponses.Detail(id, TrainingResponses.phase(session.getPhase()), session.getStatus(),
                 session.getStateVersion(), session.getSimulationTurnCount(), restored, options, page, scenario,
-                ready, session.isFinishSuggested(), messages.findByTrainingIdOrderBySequenceNoAsc(id).stream()
-                    .anyMatch(message -> message.getInputKind() == InputKind.ACTION && "MOCK_LOGIN_ATTEMPT".equals(message.getActionCode())));
+                ready, session.isFinishSuggested(), actions.contains("MOCK_LOGIN_ATTEMPT"), actions.contains("MOCK_APP_CLICK"));
     }
 
     private Optional<TrainingSession> activeSession() {
