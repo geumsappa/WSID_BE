@@ -12,5 +12,3 @@ public class WsidApplication {
         SpringApplication.run(WsidApplication.class, args);
     }
 }
-
-
