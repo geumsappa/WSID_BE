@@ -16,6 +16,18 @@ class MockPageTemplatesTest {
     }
 
     @Test
+    void cardDeliveryAndCompensationUseBankCheckNotDelivery() {
+        assertEquals("BANK_LOGIN", MockPageTemplates.pick("배송원", "가상카드", "카드 배송 사칭 후 기관 사칭", "").code());
+        assertEquals("BANK_LOGIN", MockPageTemplates.pick("보상 담당", "", "개인정보 유출 피해 보상금 신청", "").code());
+    }
+
+    @Test
+    void oldReportsWithoutAppClickReadAsNotClicked() {
+        var page = new com.wsid.report.domain.ReportEvaluation.MockPageEvaluation(true, false, false);
+        assertFalse(page.clickedAppLink());
+    }
+
+    @Test
     void recruitmentWinsOverBankName() {
         assertEquals("RECRUIT_APPLICANT", MockPageTemplates.pick("채용 담당자", "기업은행", "채용 확인", "").code());
     }

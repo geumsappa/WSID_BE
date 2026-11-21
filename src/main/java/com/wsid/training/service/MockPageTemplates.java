@@ -26,6 +26,8 @@ final class MockPageTemplates {
     /** 위에서부터 먼저 맞는 규칙을 써요. 예: "기업은행 채용 담당자"는 은행보다 채용이 먼저라 지원자 확인이 돼요. */
     private static final List<Rule> RULES = List.of(
             new Rule(Pattern.compile("채용|지원자|면접|구인|구직|알바|아르바이트|인사팀"), RECRUIT),
+            // 카드 배송 사칭·피해 보상금·전산 장애 앱 재설치는 택배가 아니라 금융 확인 화면이 어울려요
+            new Rule(Pattern.compile("카드\\s*배송|피해\\s*보상|보상금|환급금|전산\\s*장애|앱\\s*(업데이트|재설치)"), BANK),
             new Rule(Pattern.compile("택배|배송|우체국|물류|운송장"), DELIVERY),
             new Rule(Pattern.compile("중고|안전결제|직거래|마켓|판매자|구매자"), SECONDHAND),
             new Rule(Pattern.compile("대출|한도|캐피탈|저금리|대환"), LOAN),

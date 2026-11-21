@@ -226,6 +226,15 @@ public class TrainingWorkflow {
 
     public TrainingResponses.Action action(long id, TrainingRequests.Action request) {
         return write(id, currentUser.id(), request, TrainingPhase.SIMULATION, session -> {
+            if (request.actionCode() == TrainingRequests.ActionCode.MOCK_APP_CLICK) {
+                // 앱 설치 링크는 모의 페이지와 상관없이 대화에서 바로 눌러요. 눌렀다는 사실만 남겨요.
+                Instant now = Instant.now();
+                messages.save(TrainingMessage.action(id, nextSequence(id), request.actionCode().name(),
+                        null, request.requestId(), now));
+                session.recordActivity(rules, now);
+                sessions.flush();
+                return new TrainingResponses.Action(true, session.getStateVersion());
+            }
             var page = requirePage(session);
             var meta = request.actionMeta();
             if (meta != null && (!page.templateCode().equals(meta.templateCode())
@@ -263,7 +272,7 @@ public class TrainingWorkflow {
             long reportId = checkedEvaluation != null ? reports.recordEvaluation(locked, checkedEvaluation, now)
                     : reports.recordCompletion(locked, verified,
                         new ReportEvaluation.MockPageEvaluation(events.contains("MOCK_PAGE_OPEN"),
-                            events.contains("MOCK_LOGIN_ATTEMPT"), verified), now);
+                            events.contains("MOCK_LOGIN_ATTEMPT"), verified, events.contains("MOCK_APP_CLICK")), now);
             return finished(id, reportId);
         });
     }
@@ -359,7 +368,8 @@ public class TrainingWorkflow {
                 evaluation == null ? List.of() : evaluation.strengths(), improvements.stream().distinct().limit(10).toList(),
                 evaluation == null ? List.of() : evaluation.turnFeedback(),
                 evaluation == null ? new ReportEvaluation.MockPageEvaluation(events.contains("MOCK_PAGE_OPEN"),
-                        events.contains("MOCK_LOGIN_ATTEMPT"), verified) : evaluation.mockPageEvaluation(),
+                        events.contains("MOCK_LOGIN_ATTEMPT"), verified, events.contains("MOCK_APP_CLICK"))
+                        : evaluation.mockPageEvaluation(),
                 evaluation == null ? List.of("개인 자료를 요구받으면 직접 찾은 공식 채널에서 요청을 확인하세요.") : evaluation.recommendations());
     }
 
@@ -382,6 +392,7 @@ public class TrainingWorkflow {
                 String event = switch (message.getActionCode()) {
                     case "MOCK_LOGIN_ATTEMPT" -> "[훈련 행동: 본인 확인 정보 제출 완료]";
                     case "OFFICIAL_CHANNEL_CHECK" -> "[훈련 행동: 공식 경로 확인]";
+                    case "MOCK_APP_CLICK" -> "[훈련 행동: 가상 앱 설치 링크 누름]";
                     default -> null;
                 };
                 if (event != null && emitted.add(message.getActionCode())) {
