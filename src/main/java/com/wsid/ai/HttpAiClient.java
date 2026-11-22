@@ -360,7 +360,15 @@ public class HttpAiClient implements AiClient {
                     || !page.path("checkedOfficialChannel").isBoolean()) {
                 throw new AiUnavailableException("AI-05 응답 형식이 올바르지 않아요.");
             }
-            return EVALUATION_JSON.treeToValue(data, TrainingEvaluateResult.class);
+            if (page.has("clickedAppLink") && !page.path("clickedAppLink").isBoolean()) {
+                throw new AiUnavailableException("AI-05 앱 행동 형식이 올바르지 않아요.");
+            }
+            // Older AI responses omit the optional app-click flag; preserve false compatibility.
+            return new TrainingEvaluateResult(data.path("overallFeedback").asString(),
+                    stringArray(data.path("strengths")), stringArray(data.path("improvements")), List.of(),
+                    new TrainingEvaluateResult.MockPageEvaluation(page.path("openedPage").asBoolean(),
+                            page.path("attemptedMockLogin").asBoolean(), page.path("checkedOfficialChannel").asBoolean(),
+                            page.path("clickedAppLink").asBoolean(false)), stringArray(data.path("recommendations")));
         } catch (RestClientException | tools.jackson.core.JacksonException | IllegalArgumentException e) {
             // 대화·평가·오류 본문이 원인 예외에 포함될 수 있어 보관하지 않아요.
             throw new AiUnavailableException("AI-05 호출 또는 응답 검증에 실패했어요.");

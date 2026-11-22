@@ -230,4 +230,18 @@ class HttpAiClientEvaluationTest {
         ((tools.jackson.databind.node.ObjectNode) root.path("data").path("mockPageEvaluation")).remove(field);
         return root.toString();
     }
+
+    @Test
+    void optionalAppClickFlagIsPreservedWhenProvided() {
+        expectRequest().andRespond(withSuccess(RESPONSE.replace("\"checkedOfficialChannel\":false", "\"checkedOfficialChannel\":false,\"clickedAppLink\":true"), MediaType.APPLICATION_JSON));
+        assertTrue(client.evaluateTraining(request).mockPageEvaluation().clickedAppLink());
+        server.verify();
+    }
+
+    @Test
+    void optionalAppClickFlagRejectsNonBoolean() {
+        expectRequest().andRespond(withSuccess(RESPONSE.replace("\"checkedOfficialChannel\":false", "\"checkedOfficialChannel\":false,\"clickedAppLink\":\"yes\""), MediaType.APPLICATION_JSON));
+        assertThrows(com.wsid.ai.AiUnavailableException.class, () -> client.evaluateTraining(request));
+        server.verify();
+    }
 }
