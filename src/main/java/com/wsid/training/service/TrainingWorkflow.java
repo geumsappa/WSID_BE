@@ -8,6 +8,7 @@ import com.wsid.common.error.ApiException;
 import com.wsid.common.error.ErrorCode;
 import com.wsid.report.domain.ReportEvaluation;
 import com.wsid.report.service.ReportService;
+import com.wsid.report.service.ReportSources;
 import com.wsid.training.domain.TrainingMessage;
 import com.wsid.training.domain.MockPhoto;
 import com.wsid.training.domain.TrainingPhase;
@@ -37,8 +38,8 @@ import tools.jackson.databind.node.ObjectNode;
 
 @Service
 public class TrainingWorkflow {
-    private static final String TYPE = "SECONDHAND_TRADE";
-    private static final int MAX_DISCOVERY_TURNS = 5;
+    private static final java.util.Set<String> FRAUD_TYPES = java.util.Set.of("SECONDHAND_TRADE", "SMISHING", "MESSENGER_PHISHING",
+            "LOAN_FRAUD", "INSTITUTION_IMPERSONATION", "INVESTMENT_FRAUD", "JOB_SCAM");
     private static final long MAX_IMAGE_BYTES = 5L * 1024 * 1024;
     private static final List<TrainingResponses.Option> SAFE_OPTIONS = List.of(
             new TrainingResponses.Option("OFFICIAL_CHANNEL_CHECK", "공식 채널에서 직접 확인할게요."),
@@ -80,28 +81,26 @@ public class TrainingWorkflow {
     public TrainingResponses.Discovery discover(long id, TrainingRequests.Discovery request) {
         long owner = currentUser.id();
         var session = checked(id, owner, request, TrainingPhase.DISCOVERY);
-        if (session.getDiscoveryTurnCount() >= MAX_DISCOVERY_TURNS) {
-            throw error(ErrorCode.INVALID_TRAINING_PHASE);
-        }
         String content = safeInput(request.content());
         ObjectNode facts = facts(session);
         int count = session.getDiscoveryTurnCount() + 1;
         String question;
         boolean ready;
         if (ai.isMock()) {
-            facts.put("activity", TYPE);
-            ready = count >= 3;
+            if (!facts.has("activity")) facts.put("activity", content);
+            String activity = facts.path("activity").asString("");
+            ready = count >= 3 && activity.length() >= 4 && !activity.contains("모르겠") && !activity.contains("없어요");
             question = ready ? "답변을 바탕으로 가상 훈련을 만들 수 있어요."
-                    : count == 1 ? "상대가 어떤 요청을 했나요?" : "그 요청을 받고 어떻게 대응하셨나요?";
+                    : count == 1 ? "그 일과 관련해 받은 안내나 연락이 있었나요?" : "그때 직접 하신 일을 조금 더 알려주시겠어요?";
         } else {
-            var response = ai.request("/discovery/next", Map.of("conversation", conversation(id),
+            var response = ai.request("/discovery/next", Map.of("conversation", discoveryHistory(id),
                     "knownFacts", facts, "currentInput", content));
             if (!response.path("facts").isObject() || !response.path("canGenerateScenario").isBoolean()) {
                 throw error(ErrorCode.AI_SERVICE_UNAVAILABLE);
             }
             facts.setAll((ObjectNode) response.path("facts"));
             safeGenerated(facts.toString(), 16000);
-            ready = response.path("canGenerateScenario").asBoolean() || count == MAX_DISCOVERY_TURNS;
+            ready = response.path("canGenerateScenario").asBoolean();
             question = ready ? "답변을 바탕으로 가상 훈련을 만들 수 있어요."
                     : safeGenerated(response.path("nextQuestion").asString(), 1000);
         }
@@ -157,24 +156,27 @@ public class TrainingWorkflow {
         var known = facts(session);
         if (!known.path("canGenerateScenario").asBoolean()) throw error(ErrorCode.INVALID_TRAINING_PHASE);
         known.remove("canGenerateScenario");
+        String hintedType = contextualFraudType(known);
         JsonNode raw;
         String template;
         if (ai.isMock()) {
-            raw = json.createObjectNode().put("title", "중고거래 안전 확인 훈련")
-                    .put("description", "가상 거래에서 의심스러운 요청에 대응해 봐요.");
+            raw = json.createObjectNode().put("title", "JOB_SCAM".equals(hintedType) ? "채용 사칭 대응 훈련" : "상황 맞춤 사기 예방 훈련")
+                    .put("description", "알려주신 상황을 바탕으로 가상의 연락에 대응해 봐요.");
             template = BANK_NOTICE.templateCode();
         } else {
-            var result = ai.request("/scenarios/generate", Map.of("facts", known, "fraudTypeCode", TYPE));
+            var result = ai.request("/scenarios/generate", Map.of("facts", known, "fraudTypeCode", hintedType));
             raw = result.path("scenario");
             template = result.path("mockPageTemplateCode").asString("");
         }
         validateScenarioContent(raw);
+        String resolvedType = raw.path("fraudTypeCode").asString(hintedType);
+        if (!FRAUD_TYPES.contains(resolvedType)) throw error(ErrorCode.AI_SERVICE_UNAVAILABLE);
         var summary = summary(raw);
         String templateCode = BANK_NOTICE.templateCode().equals(template) ? template : null;
         return write(id, owner, request, TrainingPhase.DISCOVERY, locked -> {
-            locked.prepareScenario(TYPE, json.writeValueAsString(raw), templateCode, rules, Instant.now());
+            locked.prepareScenario(resolvedType, json.writeValueAsString(raw), templateCode, rules, Instant.now());
             sessions.flush();
-            return new TrainingResponses.Scenario(id, "SCENARIO_READY", TYPE, summary, templateCode, locked.getStateVersion());
+            return new TrainingResponses.Scenario(id, "SCENARIO_READY", resolvedType, summary, templateCode, locked.getStateVersion());
         });
     }
 
@@ -347,6 +349,33 @@ public class TrainingWorkflow {
                 response.path("shouldFinish").asBoolean(), response.path("mockPage").isObject(), nextScene);
     }
 
+    private List<Map<String, String>> discoveryHistory(long id) {
+        var history = conversation(id).stream().filter(message -> "DISCOVERY".equals(message.get("phase")))
+                .filter(message -> !"SYSTEM".equals(message.get("sender"))).toList();
+        return history.subList(Math.max(0, history.size() - 20), history.size());
+    }
+
+    static String contextualFraudType(JsonNode facts) {
+        String code = facts.path("fraudTypeCode").asString("");
+        if (FRAUD_TYPES.contains(code)) return code;
+        String activity = facts.path("activity").asString("");
+        String selected = activity.contains("채용") || activity.contains("역량검사") || activity.contains("역검") || activity.contains("면접")
+                ? "JOB_SCAM" : activity.contains("중고") || activity.contains("거래") ? "SECONDHAND_TRADE" : "SMISHING";
+        for (var fact : facts.path("extractedFacts")) {
+            selected = switch (fact.path("category").asString("")) {
+                case "구직·아르바이트" -> "JOB_SCAM";
+                case "거래(중고·쇼핑)" -> "SECONDHAND_TRADE";
+                case "택배·배송" -> "SMISHING";
+                case "금융·대출" -> "LOAN_FRAUD";
+                case "투자" -> "INVESTMENT_FRAUD";
+                case "가족·지인 연락" -> "MESSENGER_PHISHING";
+                case "공공기관·민원" -> "INSTITUTION_IMPERSONATION";
+                default -> selected;
+            };
+        }
+        return selected;
+    }
+
     static List<TrainingResponses.Option> optionsFor(String reply) {
         var options = new java.util.ArrayList<>(SAFE_OPTIONS);
         MockPhoto.offered(reply).forEach(photo -> options.add(photo.option()));
@@ -467,13 +496,17 @@ public class TrainingWorkflow {
     }
 
     static void validateScenarioContent(JsonNode scenario) {
-        if (!scenario.isObject() || scenario.toString().length() > 16000) {
+        if (!scenario.isObject() || scenario.toString().length() > 40000) {
             throw error(ErrorCode.AI_SERVICE_UNAVAILABLE);
         }
         ObjectNode content = ((ObjectNode) scenario).deepCopy();
+        // Only the newly validated generation evidence has its own bounded metadata budget.
+        content.remove("generationEvidence");
+        if (content.toString().length() > 16000) throw error(ErrorCode.AI_SERVICE_UNAVAILABLE);
         // FastAPI resolves these references from its case catalog, not from model-written dialogue.
         // Their source URLs and publication dates are metadata, not simulated phishing links or account numbers.
         content.remove("basedOnCases");
+        ReportSources.fromScenario(scenario);
         safeGenerated(content.toString(), 16000);
     }
 

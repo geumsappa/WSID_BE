@@ -60,6 +60,10 @@ public class ReportService {
 
     @Transactional
     public long recordEvaluation(TrainingSession training, ReportEvaluation evaluation, Instant now) {
+        // Snapshot before saving removes the training conversation/scenario. AI evaluation cannot invent credits.
+        var sourceCredits = training.getScenarioJson() == null ? List.<com.wsid.report.domain.ReportSource>of()
+                : ReportSources.fromScenario(json.readTree(training.getScenarioJson()));
+        evaluation = evaluation.withSources(sourceCredits);
         String title = "SECONDHAND_TRADE".equals(fraudType(training.getFraudTypeCode()))
                 ? "중고거래 금융사기 예방 훈련" : "금융사기 예방 훈련";
         return reports.save(TrainingReport.create(training.getId(), title, json.writeValueAsString(evaluation), now)).getId();
