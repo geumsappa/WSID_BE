@@ -30,12 +30,22 @@ public class SolutionAssistService {
     private final SolutionMessageRepository messages;
     private final PlatformTransactionManager manager;
     private final Duration budget;
+    /** v1.2 조건 질문 사용 여부. 끄면 confirmedConditions를 보내지 않아 v1과 같아요(즉시 롤백용). */
+    private final boolean conditionsEnabled;
     public SolutionAssistService(SolutionAssistGateway ai, SensitiveDescriptionGuard guard, ApprovedReferenceCatalog references,
             ResponseCardCatalog cards, SolutionSessionRepository sessions, SolutionMessageRepository messages,
-            PlatformTransactionManager manager, @Value("${wsid.ai.assist-total-timeout:40s}") Duration budget) {
+            PlatformTransactionManager manager, Duration budget) {
+        this(ai, guard, references, cards, sessions, messages, manager, budget, false);
+    }
+    @org.springframework.beans.factory.annotation.Autowired
+    public SolutionAssistService(SolutionAssistGateway ai, SensitiveDescriptionGuard guard, ApprovedReferenceCatalog references,
+            ResponseCardCatalog cards, SolutionSessionRepository sessions, SolutionMessageRepository messages,
+            PlatformTransactionManager manager, @Value("${wsid.ai.assist-total-timeout:40s}") Duration budget,
+            @Value("${wsid.ai.assist-conditions-enabled:false}") boolean conditionsEnabled) {
         if (budget == null || budget.isNegative() || budget.isZero()) throw new IllegalArgumentException("assist budget must be positive");
         this.ai=ai; this.guard=guard; this.references=references; this.cards=cards;
         this.sessions=sessions; this.messages=messages; this.manager=manager; this.budget=budget;
+        this.conditionsEnabled=conditionsEnabled;
     }
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public SolutionMessageResponse send(long id, SendSolutionMessageRequest request, Supplier<Optional<SolutionOwner>> owner) {
@@ -46,7 +56,11 @@ public class SolutionAssistService {
         SolutionFacts facts = before.facts();
         PendingAssist previous = before.pending();
         boolean choice = request.purpose() == SendSolutionMessageRequest.Purpose.CLARIFICATION_ANSWER;
-        if (choice) facts = facts.withChoice(previous.fact(), request.selected());
+        // 조건 답(v1.2)은 네 사실·카드에 넣지 않고 확정 조건 목록에만 더해요.
+        boolean conditionAnswer = choice && previous.asksCondition();
+        if (choice && !conditionAnswer) facts = facts.withChoice(previous.fact(), request.selected());
+        List<SolutionAssistConfirmedCondition> confirmed = new ArrayList<>(choice ? previous.confirmedConditions() : List.of());
+        if (conditionAnswer) confirmed.add(SolutionAssistConfirmedCondition.of(previous.condition(), request.selected().name()));
         // Prepare cards before AI, but do not persist partial selections on any failure.
         List<ResponseCard> selectedCards;
         try { selectedCards = ResponseRules.cards(facts, cards); }
@@ -54,7 +68,9 @@ public class SolutionAssistService {
         SolutionFacts updated = facts;
         Result result;
         try {
-            result = within(deadline, () -> evaluate(request, updated, previous, deadline));
+            // 플래그가 꺼져 있어도 이미 진행 중인 조건 질문 흐름은 끝까지 마쳐요.
+            var sent = conditionsEnabled || !confirmed.isEmpty() ? List.copyOf(confirmed) : null;
+            result = within(deadline, () -> evaluate(request, updated, previous, sent, before.fraudType(), deadline));
         } catch (AiUnavailableException e) { throw error(ErrorCode.AI_SERVICE_UNAVAILABLE); }
         if (!owner.get().filter(resolved::equals).isPresent()) throw error(ErrorCode.SOLUTION_NOT_FOUND);
         try {
@@ -63,16 +79,20 @@ public class SolutionAssistService {
                 checkDeadline(deadline);
                 Set<SolutionFact> skipped = new HashSet<>();
                 for (String key : messages.answeredUnknownKeys(id)) skipped.add(SolutionFact.fromKey(key).orElseThrow());
-                if (choice && request.selected() == FactValue.UNKNOWN) skipped.add(previous.fact());
+                if (choice && !conditionAnswer && request.selected() == FactValue.UNKNOWN) skipped.add(previous.fact());
                 SolutionQuestion next = SolutionQuestion.next(updated, skipped).orElse(null);
                 Instant now = Instant.now();
                 if (sessions.compareAndSetAssist(id, resolved, request.stateVersion(),
                         SolutionSession.prepareUpdate(updated, selectedCards, next, now),
                         SolutionSession.encodePendingAssist(result.pending())) != 1) throw new Race();
                 int sequence = Math.addExact(messages.lastSequence(id), 1);
-                messages.save(SolutionMessage.assist(id, sequence, request.purpose().name(), request.questionId(),
-                        choice ? previous.fact() : null, choice ? request.selected() : null,
-                        request.requestId(), result.assistant().referenceCodes(), now));
+                messages.save(conditionAnswer
+                        ? SolutionMessage.conditionAnswer(id, sequence, request.purpose().name(), request.questionId(),
+                                previous.condition().referenceCode(), request.selected(), request.requestId(),
+                                result.assistant().referenceCodes(), now)
+                        : SolutionMessage.assist(id, sequence, request.purpose().name(), request.questionId(),
+                                choice ? previous.fact() : null, choice ? request.selected() : null,
+                                request.requestId(), result.assistant().referenceCodes(), now));
                 messages.flush();
                 checkDeadline(deadline); // rollback if persistence consumed the remaining processing budget
                 return new SolutionMessageResponse(updated.toKeyMap(), selectedCards.stream().map(StartSolutionResponse.Card::from).toList(),
@@ -86,16 +106,29 @@ public class SolutionAssistService {
             throw classify(id, resolved, request);
         }
     }
-    private Result evaluate(SendSolutionMessageRequest input, SolutionFacts facts, PendingAssist previous, long deadline) {
+    private Result evaluate(SendSolutionMessageRequest input, SolutionFacts facts, PendingAssist previous,
+            List<SolutionAssistConfirmedCondition> confirmed, String fraudType, long deadline) {
         boolean first = input.purpose() == SendSolutionMessageRequest.Purpose.QUESTION;
+        int remaining = first ? 3 : previous.remainingClarifications();
+        // v1.2: 확정 조건 목록(첫 질문은 빈 목록)을 보내 근거 문단 기반 조건 질문을 켜요.
         var plan = ai.plan(new SolutionAssistPlanRequest(first ? input.content() : null,
                 first ? null : previous.questionIntent(), facts.toKeyMap(), first ? List.of() : previous.askedFactKeys(),
-                first ? 3 : previous.remainingClarifications(), UUID.randomUUID()));
+                remaining, UUID.randomUUID(), fraudType, null, confirmed));
         if (plan.status() == SolutionAssistStatus.NEED_USER_INPUT) {
             var keys = new ArrayList<>(first ? List.<String>of() : previous.askedFactKeys());
-            String key = plan.clarification().factKey(); keys.add(key);
-            var pending = new PendingAssist(UUID.randomUUID(), SolutionFact.fromKey(key).orElseThrow(), plan.questionIntent(),
-                    keys, (first ? 3 : previous.remainingClarifications()) - 1);
+            var clarification = plan.clarification();
+            if (clarification.isCondition()) {
+                var condition = clarification.condition();
+                // 조건의 근거 문단도 승인 카탈로그에 있고, 인용이 그 원문에 글자 그대로 있어야 물어요.
+                if (!references.containsQuote(condition.referenceCode(), condition.quote()))
+                    return unable(SolutionAssistReason.NO_EVIDENCE);
+                var pending = new PendingAssist(UUID.randomUUID(), null, condition, clarification.content(),
+                        plan.questionIntent(), keys, confirmed, remaining - 1);
+                return new Result(pending, SolutionAssistant.pending(pending));
+            }
+            String key = clarification.factKey(); keys.add(key);
+            var pending = new PendingAssist(UUID.randomUUID(), SolutionFact.fromKey(key).orElseThrow(), null, null,
+                    plan.questionIntent(), keys, confirmed, remaining - 1);
             return new Result(pending, SolutionAssistant.pending(pending));
         }
         if (plan.status() == SolutionAssistStatus.UNABLE_TO_ANSWER) return unable(plan.reasonCode());
@@ -103,7 +136,7 @@ public class SolutionAssistService {
         if (approved.isEmpty()) return unable(SolutionAssistReason.NO_EVIDENCE);
         checkDeadline(deadline);
         var answer = ai.answer(new SolutionAssistAnswerRequest(first ? input.content() : null, plan.questionIntent(),
-                facts.toKeyMap(), approved, UUID.randomUUID()));
+                facts.toKeyMap(), approved, UUID.randomUUID(), fraudType, null, confirmed));
         if (answer.status() == SolutionAssistStatus.UNABLE_TO_ANSWER) return unable(answer.reasonCode());
         return new Result(null, new SolutionAssistant(answer.status(), answer.answer(), answer.referenceCodes(), null, null));
     }
@@ -117,8 +150,9 @@ public class SolutionAssistService {
         if (request.purpose() == SendSolutionMessageRequest.Purpose.QUESTION) {
             if (pending != null) throw error(ErrorCode.ASSIST_QUESTION_PENDING);
         } else if (pending == null || !pending.questionId().equals(request.questionId())
-                || s.readFacts().get(pending.fact()) != FactValue.UNKNOWN) throw error(ErrorCode.INVALID_REQUEST);
-        return new Snapshot(s.readFacts(), pending);
+                || (!pending.asksCondition() && s.readFacts().get(pending.fact()) != FactValue.UNKNOWN))
+            throw error(ErrorCode.INVALID_REQUEST);
+        return new Snapshot(s.readFacts(), pending, s.getFraudTypeCode());
     }
     private TransactionTemplate transaction(boolean readOnly, long deadline) {
         checkDeadline(deadline);
@@ -156,7 +190,7 @@ public class SolutionAssistService {
     }
     private static void checkDeadline(long deadline) { if (System.nanoTime() >= deadline) throw error(ErrorCode.AI_SERVICE_UNAVAILABLE); }
     private static ApiException error(ErrorCode code) { return new ApiException(code); }
-    private record Snapshot(SolutionFacts facts, PendingAssist pending) {}
+    private record Snapshot(SolutionFacts facts, PendingAssist pending, String fraudType) {}
     private record Result(PendingAssist pending, SolutionAssistant assistant) {}
     private static class Race extends RuntimeException {}
 }

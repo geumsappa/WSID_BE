@@ -84,6 +84,15 @@ class SolutionAssistServiceTest {
         assertEquals(List.of("installedApp"),followup.askedFactKeys());assertEquals(2,followup.remainingClarifications());
         verify(ai,never()).answer(any());
     }
+    @Test void storedFraudTypeIsPassedToPlanAndAnswer() {
+        ReflectionTestUtils.setField(session,"fraudTypeCode","SECONDHAND_TRADE");
+        when(ai.plan(any())).thenReturn(evidence());
+        var ref=new VerifiedReference("APP_GUIDE","검토 제목","검토 문단");when(references.approved(any())).thenReturn(List.of(ref));
+        when(ai.answer(any())).thenReturn(new SolutionAssistAnswerResult(SolutionAssistStatus.ANSWERED,"안내입니다.",List.of("APP_GUIDE"),null));
+        send(question(0));
+        verify(ai).plan(argThat(r->"SECONDHAND_TRADE".equals(r.fraudType())));
+        verify(ai).answer(argThat(r->"SECONDHAND_TRADE".equals(r.fraudType())));
+    }
     @Test void approvedReferencesOnlyArePassedToAnswer() {
         when(ai.plan(any())).thenReturn(evidence());
         var ref=new VerifiedReference("APP_GUIDE","검토 제목","검토 문단");when(references.approved(any())).thenReturn(List.of(ref));

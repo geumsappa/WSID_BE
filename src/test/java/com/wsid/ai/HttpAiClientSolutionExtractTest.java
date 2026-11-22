@@ -77,7 +77,7 @@ class HttpAiClientSolutionExtractTest {
         var result = client.extractSolutionFacts(request);
         assertEquals("YES", result.facts().get("transferredMoney"));
         assertEquals(List.of("sharedInformation", "installedApp"), result.uncertainFields());
-        assertFalse(new ObjectMapper().writeValueAsString(result).contains("fraudType"));
+        assertEquals("SMISHING", result.fraudType());
         server.verify();
     }
 

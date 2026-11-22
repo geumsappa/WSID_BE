@@ -28,10 +28,11 @@ public class SolutionSessionUpdatesImpl implements SolutionSessionUpdates {
         int rows = jdbc.update("""
                 UPDATE solution_sessions
                    SET facts_json = CAST(? AS jsonb), card_codes_json = CAST(? AS jsonb),
-                       next_question_json = CAST(? AS jsonb), pending_assist_json = CAST(? AS jsonb), updated_at = ?, state_version = state_version + 1
+                       next_question_json = CAST(? AS jsonb), pending_assist_json = CAST(? AS jsonb), updated_at = ?, state_version = state_version + 1,
+                       fraud_type_code = COALESCE(fraud_type_code, ?)
                  WHERE id = ? AND status = 'ACTIVE' AND state_version = ? AND
                 """ + ownerCondition,
-                update.factsJson(), update.cardsJson(), update.questionJson(), pendingJson, Timestamp.from(update.updatedAt()),
+                update.factsJson(), update.cardsJson(), update.questionJson(), pendingJson, Timestamp.from(update.updatedAt()), update.fraudTypeCode(),
                 id, expectedVersion, owner.isMember() ? owner.userId() : owner.anonymousId());
         // 전용 쓰기 트랜잭션에서 아직 메시지를 저장하기 전 호출해요. 변경 전 JPA 캐시를 버려요.
         entityManager.clear();

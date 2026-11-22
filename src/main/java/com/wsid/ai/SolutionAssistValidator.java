@@ -29,8 +29,17 @@ public final class SolutionAssistValidator {
         }
         if (result.status() == SolutionAssistStatus.NEED_USER_INPUT) {
             var clarification = result.clarification();
-            if (request.remainingClarifications() == 0
-                    || !"UNKNOWN".equals(request.facts().get(clarification.factKey()))
+            if (request.remainingClarifications() == 0) {
+                throw new AiUnavailableException("상담 assist 추가 질문이 허용 범위를 벗어났어요.");
+            }
+            if (clarification.isCondition()) {
+                // 조건 질문은 Spring이 켠 요청(v1.2)에서만, 이미 답한 조건이 아닐 때만 받아요.
+                String id = clarification.condition().conditionId();
+                if (!request.conditionsEnabled() || request.confirmedConditions().stream()
+                        .anyMatch(c -> c.conditionId().equals(id))) {
+                    throw new AiUnavailableException("상담 assist 조건 질문이 허용 범위를 벗어났어요.");
+                }
+            } else if (!"UNKNOWN".equals(request.facts().get(clarification.factKey()))
                     || request.askedFactKeys().contains(clarification.factKey())) {
                 throw new AiUnavailableException("상담 assist 추가 질문이 허용 범위를 벗어났어요.");
             }

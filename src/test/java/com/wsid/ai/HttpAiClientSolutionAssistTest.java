@@ -70,7 +70,7 @@ class HttpAiClientSolutionAssistTest {
                 .andExpect(content().json("""
                         {"phase":"PLAN","question":"앱 관련해서 어떻게 해야 하나요?","questionIntent":null,
                         "facts":{"transferredMoney":"YES","sharedInformation":"NO","installedApp":"UNKNOWN",
-                        "contactContinues":"UNKNOWN"},"askedFactKeys":[],"remainingClarifications":3}""",
+                        "contactContinues":"UNKNOWN"},"askedFactKeys":[],"remainingClarifications":3,"fraudType":null,"history":null}""",
                         JsonCompareMode.STRICT))
                 .andRespond(withSuccess(NEED_INPUT, MediaType.APPLICATION_JSON));
         var result = client.planSolutionAssist(plan);
@@ -82,6 +82,42 @@ class HttpAiClientSolutionAssistTest {
     }
 
     @Test
+    void v12PlanSendsConfirmedConditionsAndParsesConditionClarification() {
+        String code = "REF_LAW_REFUND_PROCEDURE_V1_P2";
+        var asked = com.wsid.ai.dto.SolutionAssistCondition.of(code, "적용: 전화·문자로 속여 송금하게 한 경우");
+        var done = List.of(com.wsid.ai.dto.SolutionAssistConfirmedCondition.of(asked, "YES"));
+        var request = new SolutionAssistPlanRequest(null, SolutionAssistIntent.TRANSFER_RESPONSE, FACTS, List.of(), 2,
+                UUID.randomUUID(), null, null, done);
+        var next = com.wsid.ai.dto.SolutionAssistCondition.of(code, "제외: 물건·서비스를 주겠다며 속인 사기");
+        server.expect(content().json("""
+                {"confirmedConditions":[{"conditionId":"%s","referenceCode":"%s","quote":"적용: 전화·문자로 속여 송금하게 한 경우","answer":"YES"}]}"""
+                .formatted(asked.conditionId(), code), JsonCompareMode.LENIENT))
+                .andRespond(withSuccess("""
+                        {"success":true,"data":{"status":"NEED_USER_INPUT","questionIntent":"TRANSFER_RESPONSE",
+                        "clarification":{"kind":"CONDITION","factKey":null,"condition":{"conditionId":"%s",
+                        "referenceCode":"%s","quote":"제외: 물건·서비스를 주겠다며 속인 사기"},
+                        "content":"물건이나 서비스를 받기로 하고 보내신 돈인가요?","options":["YES","NO","UNKNOWN"]},
+                        "candidateReferences":[],"reasonCode":null}}""".formatted(next.conditionId(), code), MediaType.APPLICATION_JSON));
+        var result = client.planSolutionAssist(request);
+        assertTrue(result.clarification().isCondition());
+        assertNull(result.clarification().factKey());
+        assertEquals(next, result.clarification().condition());
+        server.verify();
+    }
+
+    @Test
+    void tamperedConditionIdIsRejected() {
+        var request = new SolutionAssistPlanRequest("질문", null, FACTS, List.of(), 3, UUID.randomUUID(), null, null, List.of());
+        server.expect(requestTo("http://ai.test/internal/ai/solutions/assist")).andRespond(withSuccess("""
+                {"success":true,"data":{"status":"NEED_USER_INPUT","questionIntent":"TRANSFER_RESPONSE",
+                "clarification":{"kind":"CONDITION","factKey":null,"condition":{"conditionId":"REF_X#000000000000",
+                "referenceCode":"REF_X","quote":"제외: 물건·서비스를 주겠다며 속인 사기"},
+                "content":"물건을 받기로 하고 보내신 돈인가요?","options":["YES","NO","UNKNOWN"]},
+                "candidateReferences":[],"reasonCode":null}}""", MediaType.APPLICATION_JSON));
+        assertThrows(AiUnavailableException.class, () -> client.planSolutionAssist(request));
+    }
+
+    @Test
     void followUpPlanSendsNullQuestionWithIntentAndAskedKeys() {
         var followUp = new SolutionAssistPlanRequest(null, SolutionAssistIntent.DEVICE_SAFETY,
                 Map.of("transferredMoney", "YES", "sharedInformation", "NO", "installedApp", "YES",
@@ -89,7 +125,7 @@ class HttpAiClientSolutionAssistTest {
         server.expect(content().json("""
                 {"phase":"PLAN","question":null,"questionIntent":"DEVICE_SAFETY","facts":{"transferredMoney":"YES",
                 "sharedInformation":"NO","installedApp":"YES","contactContinues":"UNKNOWN"},
-                "askedFactKeys":["installedApp"],"remainingClarifications":2}""", JsonCompareMode.STRICT))
+                "askedFactKeys":["installedApp"],"remainingClarifications":2,"fraudType":null,"history":null}""", JsonCompareMode.STRICT))
                 .andRespond(withSuccess(EVIDENCE, MediaType.APPLICATION_JSON));
         var result = client.planSolutionAssist(followUp);
         assertEquals(List.of(new SolutionCandidateReference("APP_REMOVE_GUIDE", "1")), result.candidateReferences());
@@ -112,7 +148,7 @@ class HttpAiClientSolutionAssistTest {
                         {"phase":"ANSWER","question":"앱 관련해서 어떻게 해야 하나요?","questionIntent":"DEVICE_SAFETY",
                         "facts":{"transferredMoney":"YES","sharedInformation":"NO","installedApp":"UNKNOWN",
                         "contactContinues":"UNKNOWN"},"verifiedReferences":[{"code":"APP_REMOVE_GUIDE",
-                        "title":"악성 앱 삭제 방법","excerpt":"설치한 앱을 삭제합니다."}]}""", JsonCompareMode.STRICT))
+                        "title":"악성 앱 삭제 방법","excerpt":"설치한 앱을 삭제합니다."}],"fraudType":null,"history":null}""", JsonCompareMode.STRICT))
                 .andRespond(withSuccess(ANSWERED, MediaType.APPLICATION_JSON));
         var result = client.answerSolutionAssist(answer);
         assertEquals(SolutionAssistStatus.ANSWERED, result.status());

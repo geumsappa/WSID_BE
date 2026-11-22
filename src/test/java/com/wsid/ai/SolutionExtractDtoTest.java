@@ -131,4 +131,14 @@ class SolutionExtractDtoTest {
         return new HashMap<>(Map.of("transferredMoney", "UNKNOWN", "contactContinues", "UNKNOWN",
                 "sharedInformation", "UNKNOWN", "installedApp", "UNKNOWN"));
     }
+
+    @org.junit.jupiter.api.Test
+    void fraudTypeKeepsOnlyKnownCodes() {
+        var facts = java.util.Map.of("transferredMoney", "YES", "sharedInformation", "NO", "installedApp", "NO", "contactContinues", "NO");
+        org.junit.jupiter.api.Assertions.assertEquals("SMISHING", new SolutionExtractResult(facts, java.util.List.of(), "SMISHING").fraudType());
+        org.junit.jupiter.api.Assertions.assertNull(new SolutionExtractResult(facts, java.util.List.of(), "ROMANCE_SCAM").fraudType());
+        org.junit.jupiter.api.Assertions.assertNull(new SolutionExtractResult(facts, java.util.List.of()).fraudType());
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () -> new com.wsid.ai.dto.SolutionAssistPlanRequest(
+                "질문", null, facts, java.util.List.of(), 3, java.util.UUID.randomUUID(), "ROMANCE_SCAM"));
+    }
 }

@@ -76,8 +76,15 @@ public class SolutionSession {
         if (pendingAssistJson == null) return null;
         try {
             var node = JSON.readTree(pendingAssistJson);
-            if (!node.isObject() || node.size() != 5
-                    || !node.path("questionId").isString() || !node.path("fact").isString()
+            // 옛 행은 5필드(네 사실 질문), v1.2 행은 condition·conditionContent·confirmedConditions가 더해진 8필드예요.
+            boolean legacy = node.isObject() && node.size() == 5 && node.path("fact").isString();
+            boolean v12 = node.isObject() && node.size() == 8 && node.has("fact") && node.has("condition")
+                    && (node.path("conditionContent").isString() || node.path("conditionContent").isNull())
+                    && (node.path("fact").isString() || node.path("fact").isNull())
+                    && (node.path("condition").isObject() || node.path("condition").isNull())
+                    && node.path("confirmedConditions").isArray();
+            if (!(legacy || v12)
+                    || !node.path("questionId").isString()
                     || !node.path("questionIntent").isString() || !node.path("askedFactKeys").isArray()
                     || !node.path("remainingClarifications").isInt()) throw new IllegalArgumentException();
             String id = node.path("questionId").asString();
@@ -120,6 +127,12 @@ public class SolutionSession {
     /** @param title {@link SolutionTitles#fromDescription}로 만든 목록 제목. 설명이 없으면 null. */
     public static SolutionSession start(SolutionOwner owner, SolutionFacts facts, List<ResponseCard> cards,
             SolutionQuestion nextQuestion, String title, Instant now) {
+        return start(owner, facts, cards, nextQuestion, title, null, now);
+    }
+
+    /** @param fraudTypeCode AI-06이 제안한 사기 유형 코드. 없으면 null. */
+    public static SolutionSession start(SolutionOwner owner, SolutionFacts facts, List<ResponseCard> cards,
+            SolutionQuestion nextQuestion, String title, String fraudTypeCode, Instant now) {
         if (owner == null || facts == null || cards == null || now == null) {
             throw new IllegalArgumentException("상담 초기 상태가 올바르지 않아요.");
         }
@@ -128,6 +141,7 @@ public class SolutionSession {
         session.anonymousOwnerId = owner.anonymousId();
         session.status = SolutionStatus.ACTIVE;
         session.title = title;
+        session.fraudTypeCode = com.wsid.ai.dto.SolutionFraudType.orNull(fraudTypeCode);
         session.factsJson = JSON.writeValueAsString(facts.toKeyMap());
         session.cardCodesJson = JSON.writeValueAsString(cards.stream().map(card -> {
             Map<String, Object> ref = new LinkedHashMap<>();
@@ -144,13 +158,24 @@ public class SolutionSession {
     /** CAS로 저장할 불변 값. 관리 엔티티를 변경하지 않아 @Version UPDATE와 중복되지 않아요. */
     public static Update prepareUpdate(SolutionFacts facts, List<ResponseCard> cards,
             SolutionQuestion question, Instant now) {
+        return prepareUpdate(facts, cards, question, null, now);
+    }
+
+    /** @param fraudTypeCode 새로 제안된 사기 유형. 저장된 값이 없을 때만 채워요(COALESCE). */
+    public static Update prepareUpdate(SolutionFacts facts, List<ResponseCard> cards,
+            SolutionQuestion question, String fraudTypeCode, Instant now) {
         if (facts == null || cards == null || now == null) throw new IllegalArgumentException("갱신 상태가 필요해요.");
         return new Update(JSON.writeValueAsString(facts.toKeyMap()),
                 JSON.writeValueAsString(cards.stream().map(c -> new CardReference(c.code(), c.version())).toList()),
-                question == null ? null : JSON.writeValueAsString(question), now);
+                question == null ? null : JSON.writeValueAsString(question), now,
+                com.wsid.ai.dto.SolutionFraudType.orNull(fraudTypeCode));
     }
 
-    public record Update(String factsJson, String cardsJson, String questionJson, Instant updatedAt) {}
+    public record Update(String factsJson, String cardsJson, String questionJson, Instant updatedAt, String fraudTypeCode) {
+        public Update(String factsJson, String cardsJson, String questionJson, Instant updatedAt) {
+            this(factsJson, cardsJson, questionJson, updatedAt, null);
+        }
+    }
 
     /** SOL-02: 저장된 사실. 4개 키·허용 값이 아니면 조용히 고치지 않고 예외를 던져요. */
     public SolutionFacts readFacts() {

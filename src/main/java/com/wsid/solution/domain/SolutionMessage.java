@@ -55,6 +55,25 @@ public class SolutionMessage {
         return m;
     }
 
+    /**
+     * v1.2 조건 질문에 대한 답. AI 질문 문장은 남기지 않고 서버 고정 문구, 답 코드, 근거 문단 코드만 남겨요.
+     * fact_key는 NULL이라 네 사실 답변 이력과 섞이지 않아요.
+     * reference_codes_json에는 조건 질문의 근거 코드를 먼저, 이어서 이 턴의 답변이 인용한 코드를 중복 없이 남겨요.
+     */
+    public static SolutionMessage conditionAnswer(long id, int sequence, String purpose, UUID questionId,
+            String referenceCode, FactValue selected, UUID requestId, java.util.List<String> answerReferences, Instant now) {
+        if (referenceCode == null || selected == null || requestId == null || answerReferences == null) {
+            throw new IllegalArgumentException("조건 답 기록이 올바르지 않아요.");
+        }
+        var m = of(id, MessageSender.USER, InputKind.OPTION, sequence, "추가 확인 선택: " + selected.name(), requestId, now);
+        m.purpose = purpose;
+        m.assistQuestionId = questionId;
+        m.selectedCode = selected.name();
+        var codes = new java.util.LinkedHashSet<String>(); codes.add(referenceCode); codes.addAll(answerReferences);
+        m.referenceCodesJson = new tools.jackson.databind.ObjectMapper().writeValueAsString(java.util.List.copyOf(codes));
+        return m;
+    }
+
     /** 사용자가 고른 선택지 코드 */
     @Column(name = "selected_code", length = 100)
     private String selectedCode;
