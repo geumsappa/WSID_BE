@@ -33,4 +33,14 @@ class TrainingSenderNameTest {
         assertEquals("김민수", TrainingWorkflow.summary(scenario).senderName());
         assertNull(TrainingWorkflow.summary(scenario).organizationName());
     }
+
+    @Test
+    void individualCounterpartDoesNotRepeatRole() {
+        var scenario = json.createObjectNode().put("title", "선풍기 거래").put("description", "가상 상황");
+        scenario.putObject("persona").put("organization", "개인 구매자").put("role", "구매자");
+        assertEquals("구매자", TrainingWorkflow.summary(scenario).senderName());
+        assertNull(TrainingWorkflow.summary(scenario).organizationName());
+        scenario.putObject("persona").put("organization", "한결배송 배송팀").put("role", "배송팀");
+        assertEquals("한결배송 배송팀", TrainingWorkflow.summary(scenario).senderName());
+    }
 }
