@@ -305,7 +305,6 @@ class RegistrationIntegrationTest {
             String discovery = path + "/discovery/messages";
             assertError(reportPost(discovery, owner, token, trainingBody(0, Map.of("content", "test@example.invalid"))),
                     400, "SENSITIVE_DATA_DETECTED");
-            verifyMockOcr(path, owner, token);
             var first = trainingBody(0, Map.of("content", "중고거래 중 의심스러운 연락을 받았어요."));
             var response = data(reportPost(discovery, owner, token, first), 200);
             assertFalse(response.path("canGenerateScenario").asBoolean());
@@ -343,7 +342,8 @@ class RegistrationIntegrationTest {
             assertError(getWithCookie(path + "/mock-page", other), 404, "TRAINING_NOT_FOUND");
             var action = data(reportPost(path + "/actions", owner, token, trainingBody(version,
                     Map.of("actionCode", "MOCK_PAGE_OPEN", "actionMeta",
-                            Map.of("templateCode", "BANK_NOTICE", "screenCode", "LOGIN_CHECK")))), 200);
+                            Map.of("templateCode", page.path("templateCode").asText(),
+                                    "screenCode", page.path("screenCode").asText())))), 200);
             assertTrue(action.path("recorded").asBoolean());
             var choice = data(reportPost(path + "/messages", owner, token, trainingBody(action.path("stateVersion").asInt(),
                     Map.of("inputKind", "CHOICE", "selectedCode", "OFFICIAL_CHANNEL_CHECK"))), 200);
@@ -370,22 +370,6 @@ class RegistrationIntegrationTest {
         body.put("stateVersion", version);
         body.put("requestId", UUID.randomUUID());
         return body;
-    }
-
-    private void verifyMockOcr(String path, String owner, JsonNode token) throws Exception {
-        String boundary = "training-test-boundary";
-        byte[] image = java.util.Base64.getDecoder().decode(
-                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jEJkAAAAASUVORK5CYII=");
-        String start = "--" + boundary + "\r\nContent-Disposition: form-data; name=\"requestId\"\r\n\r\n"
-                + UUID.randomUUID() + "\r\n--" + boundary
-                + "\r\nContent-Disposition: form-data; name=\"images\"; filename=\"test.png\"\r\nContent-Type: image/png\r\n\r\n";
-        var body = HttpRequest.BodyPublishers.concat(HttpRequest.BodyPublishers.ofString(start),
-                HttpRequest.BodyPublishers.ofByteArray(image), HttpRequest.BodyPublishers.ofString("\r\n--" + boundary + "--\r\n"));
-        var req = request(path + "/discovery/images", owner).header("Content-Type", "multipart/form-data; boundary=" + boundary)
-                .header(token.path("headerName").asText(), token.path("token").asText()).POST(body).build();
-        var response = data(client.send(req, HttpResponse.BodyHandlers.ofString()), 200);
-        assertFalse(response.path("usable").asBoolean());
-        assertEquals("", response.path("recognizedText").asText());
     }
 
     @Test

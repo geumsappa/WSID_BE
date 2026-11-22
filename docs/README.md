@@ -5,7 +5,11 @@
 | [API 기준과 구현 상태](api.md) | 확정한 경로·이용 정책과 기능별 구현 상태 확인 |
 | [AI-01 개발·검증 안내](ai-01-discovery.md) | 질문 횟수·상태·API 응답·테스트 실행 방법 확인 |
 | [AI-01 Spring·DB·FastAPI 연결 설계](ai-01-integration.md) | 어떤 파일이 어떤 데이터를 주고받고, 무엇을 저장해야 정상 동작하는지 확인 |
-| [AI-02 OCR 추출 개발·연결 설계](ai-02-ocr.md) | Spring 클라이언트를 어떻게 만들었는지, FastAPI 예시 코드와 HTTP 계약, 경우별 처리 확인 |
+| [AI-02 OCR 추출 개발·연결 설계](ai-02-ocr.md) | FastAPI OCR(Tesseract)과 Spring 클라이언트의 HTTP 계약, 경우별 처리 확인 |
+| [SOL-06 피해 대응 사진 입력](sol-06-session-images.md) | 사진 글자를 상담 사실 추출·근거 검색에 쓰는 흐름, TRN-05에서 옮긴 검증, 오류 코드·테스트 확인 |
+| [SOL-06 검토·수정 보고서](sol-06-review-fix-report.md) | 대응 안내에 사진 종류·요약 반영, 긴 요약 처리, 대기 시간 조정과 남은 작업·머지 순서 확인 |
+| [SOL-07 완료 상담 목록 계획서](sol-07-session-list-plan.md) | 회원 완료 상담 목록 API, 원문 없이 만드는 제목 방안, 다시 보기에서 보이는 범위, 구현·테스트 단계와 팀 결정 항목 |
+| [SOL-07 완료 상담 목록 구현 보고서](sol-07-session-list.md) | 회원별 목록·커서·제목·상세 시각 및 복원 한계 확인 |
 | [AI-03 개인화 훈련 시나리오 생성 구현 계획서](ai-03-scenario-plan.md) | 구현 범위·API 계약·Spring/FastAPI 역할·훈련 연결 순서·검증 계획 확인 |
 | [AI-03 시나리오 생성 구현·연결 안내](ai-03-scenario.md) | 구현한 코드·DTO·HTTP 검증·설정·관련 코드의 역할·FastAPI 및 훈련 연결 작업·검증 결과 확인 |
 | [AI-04 역할극 응답·행동 분석 구현 계획서](ai-04-simulation-plan.md) | 새 내부 API 계약·기존 코드 전환·행동/종료/모의 페이지 정책·Spring/FastAPI 역할·검증 계획 확인 |
@@ -29,6 +33,12 @@
 | [SOL-04 피해 사실 수정 구현 보고서](sol-04-facts-update.md) | 직접 정정 API 계약·SOL-03과 같은 응답·UNKNOWN 정정 기록·CAS/경쟁·파일별 상호작용·테스트 결과와 남은 일 확인 |
 | [SOL-05 피해 대응 상담 종료 구현·테스트 계획서](sol-05-session-complete-plan.md) | 본문 없음/빈 객체 종료·반복 200·완료 시각/버전·수정과 종료의 경쟁·소유권/CSRF·완료 후 복원·파일별 개발 및 테스트 계획 확인 |
 | [SOL-05 피해 대응 상담 종료 구현 보고서와 연동 안내](sol-05-session-complete.md) | 실제 종료/반복 처리·완료와 수정의 저장 순서·변경 파일·900건 검증 결과·프론트/명세 전달 내용 확인 |
+| [상담 LangGraph 도입·추가 질문·근거 답변 연결 및 영향 범위](solution-langgraph-integration-plan.md) | 실제 Python/Spring 변경 파일·AI-06/07 유지·근거 승인·SOL-03 확장·안전한 대화 상태·프론트/DB/종료 연계와 개발 순서, 계약 초안 v1(내부 PLAN/ANSWER 3.1장·공개 purpose/questionId/assistant 5.1장) 확인 |
+| [SOL-03 자유 질문·추가 질문 수정 계획서](solution-assist-question-plan.md) | purpose 확장·assistant 응답·대기 질문 저장·FastAPI 연결·시간 제한 설계 확인 |
+| [SOL-03 자유 질문·추가 질문 구현 보고서](solution-assist-question.md) | 실제 요청·응답·오류, 처리 흐름, V5 저장·SOL-02/04/05 연동, 설정, 테스트 결과와 남은 제한 확인 |
+| [상담 assist Spring 시간 제한 보고서](solution-assist-spring-timeout-report.md) | assist 전용 read timeout과 로컬 FastAPI 계약 테스트 결과 확인 |
+| [SOL-03 자유 질문 확장 및 FastAPI 연결 수정 계획서](solution-assist-question-plan.md) | messages의 purpose 확장·OHC app.main 연결·PLAN/ANSWER 예시·대기 상태/CAS·HTTP 모드 선택·변경 파일과 테스트 확인 |
+| [상담 assist Spring 시간 제한 수정 보고서](solution-assist-spring-timeout-report.md) | 내부 클라이언트 시간 설정·Python과의 관계·테스트 및 미구현 상담 연결 범위 확인 |
 
 AI-01을 개발하거나 다른 팀의 FastAPI·DB와 연결할 때는 연결 설계를 먼저 읽고, 필드·규칙은 개발·검증 안내와 API 기준을 함께 확인해요. 현재 FastAPI 저장소는 이 프로젝트에 없으므로 연결 설계의 Python 파일 구조는 역할을 설명하기 위한 제안이에요.
 

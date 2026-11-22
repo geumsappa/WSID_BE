@@ -6,8 +6,6 @@ import com.wsid.training.dto.TrainingRequests;
 import com.wsid.training.service.TrainingService;
 import com.wsid.training.service.TrainingWorkflow;
 import jakarta.validation.Valid;
-import java.util.List;
-import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -15,10 +13,8 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/trainings")
@@ -51,12 +47,6 @@ public class TrainingsController {
     public Success<TrainingResponses.Discovery> discovery(@PathVariable long id,
             @Valid @RequestBody TrainingRequests.Discovery request) {
         return Success.of(workflow.discover(id, request));
-    }
-
-    @PostMapping(path = "/{id}/discovery/images", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public Success<TrainingResponses.Ocr> images(@PathVariable long id,
-            @RequestParam List<MultipartFile> images, @RequestParam UUID requestId) {
-        return Success.of(workflow.ocr(id, images));
     }
 
     @PostMapping("/{id}/scenario")

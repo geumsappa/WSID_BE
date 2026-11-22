@@ -29,6 +29,7 @@
 | SOL-03 | POST | `/api/solutions/sessions/{id}/messages` | 불필요 (비회원 상담 소유권 확인 필요) | 구현([보고서](../../../../../../docs/sol-03-session-message.md)) |
 | SOL-04 | PATCH | `/api/solutions/sessions/{id}/facts` | 불필요 (비회원 상담 소유권 확인 필요) | 구현([보고서](../../../../../../docs/sol-04-facts-update.md)) |
 | SOL-05 | POST | `/api/solutions/sessions/{id}/complete` | 불필요 (비회원 상담 소유권 확인 필요) | 구현([보고서](../../../../../../docs/sol-05-session-complete.md)) |
+| SOL-06 | POST | `/api/solutions/sessions/{id}/images` | 불필요 (비회원 상담 소유권 확인 필요) | 구현, 초안 ID([설계](../../../../../../docs/sol-06-session-images.md)) |
 
 소유자는 `SolutionOwnerResolver`가 정해요. 회원은 로그인 principal, 비회원은 HTTP 세션에 발급한 익명 UUID(`anonymous_owner_id`, V3)예요. 비회원은 `GET /api/solutions/csrf`로 세션·토큰을 받은 뒤 같은 쿠키와 `X-CSRF-TOKEN`으로 요청해요. 보안 규칙은 AUTH의 `SecurityConfig`가 아니라 `security/SolutionSecurityConfig`(`/api/solutions/**` 전용 체인)에 있어요. 조회는 `SolutionOwnerResolver.findExisting`(새 세션·UUID를 만들지 않음)과 `SolutionSessionRepository.findOwned`로만 하고, 상담 ID만 받아 타인 상담을 조회하게 만들지 않아요.
 

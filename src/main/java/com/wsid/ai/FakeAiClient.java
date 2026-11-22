@@ -6,6 +6,15 @@ import com.wsid.ai.dto.ScenarioGenerateRequest;
 import com.wsid.ai.dto.ScenarioGenerateResult;
 import com.wsid.ai.dto.SimulationReplyRequest;
 import com.wsid.ai.dto.SimulationReplyResult;
+import com.wsid.ai.dto.SolutionAssistAnswerRequest;
+import com.wsid.ai.dto.SolutionAssistAnswerResult;
+import com.wsid.ai.dto.SolutionAssistClarification;
+import com.wsid.ai.dto.SolutionAssistIntent;
+import com.wsid.ai.dto.SolutionAssistPlanRequest;
+import com.wsid.ai.dto.SolutionAssistPlanResult;
+import com.wsid.ai.dto.SolutionAssistReason;
+import com.wsid.ai.dto.SolutionAssistStatus;
+import com.wsid.ai.dto.SolutionCandidateReference;
 import com.wsid.ai.dto.SolutionExtractRequest;
 import com.wsid.ai.dto.SolutionExtractResult;
 import com.wsid.ai.dto.SolutionExplainRequest;
@@ -23,6 +32,63 @@ import java.util.Map;
  * 항상 같은 입력에 같은 답을 돌려줘요.
  */
 public class FakeAiClient implements AiClient {
+
+    static final String FAKE_ASSIST_REFERENCE = "FAKE_ASSIST_GUIDE";
+    private static final List<String> ASSIST_FACT_ORDER =
+            List.of("transferredMoney", "sharedInformation", "installedApp", "contactContinues");
+    private static final Map<String, String> ASSIST_QUESTIONS = Map.of(
+            "transferredMoney", "상대방에게 돈을 보낸 적이 있나요?",
+            "sharedInformation", "상대방에게 개인정보나 인증번호를 알려준 적이 있나요?",
+            "installedApp", "상대방이 알려준 앱을 설치한 적이 있나요?",
+            "contactContinues", "상대방이 지금도 계속 연락하고 있나요?");
+
+    /**
+     * 판단 품질을 대신하지 않는 고정 PLAN 결과예요. 질문 문장으로 의도를 추측하지 않고 첫 실행은 GENERAL로 둬요.
+     * 표식: "[AI_FAIL]"은 실패, "[OUT_OF_SCOPE]"는 답변 불가. 그 외에는 아직 묻지 않은 UNKNOWN 사실을 고정 순서로
+     * 하나씩 묻고, 물을 것이 없거나 횟수를 다 쓰면 근거 후보를 돌려줘요.
+     */
+    @Override
+    public SolutionAssistPlanResult planSolutionAssist(SolutionAssistPlanRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("상담 assist PLAN 요청이 필요해요.");
+        }
+        String question = request.question() == null ? "" : request.question();
+        if (question.contains("[AI_FAIL]")) {
+            throw new AiUnavailableException("가짜 상담 assist PLAN 실패");
+        }
+        var intent = request.questionIntent() == null ? SolutionAssistIntent.GENERAL : request.questionIntent();
+        SolutionAssistPlanResult result;
+        if (question.contains("[OUT_OF_SCOPE]")) {
+            result = new SolutionAssistPlanResult(SolutionAssistStatus.UNABLE_TO_ANSWER, null, null, List.of(),
+                    SolutionAssistReason.OUT_OF_SCOPE);
+        } else {
+            String factKey = request.remainingClarifications() == 0 ? null : ASSIST_FACT_ORDER.stream()
+                    .filter(key -> "UNKNOWN".equals(request.facts().get(key)))
+                    .filter(key -> !request.askedFactKeys().contains(key)).findFirst().orElse(null);
+            result = factKey != null
+                    ? new SolutionAssistPlanResult(SolutionAssistStatus.NEED_USER_INPUT, intent,
+                            new SolutionAssistClarification(factKey, ASSIST_QUESTIONS.get(factKey),
+                                    SolutionAssistClarification.OPTIONS), List.of(), null)
+                    : new SolutionAssistPlanResult(SolutionAssistStatus.EVIDENCE_READY, intent, null,
+                            List.of(new SolutionCandidateReference(FAKE_ASSIST_REFERENCE, "1")), null);
+        }
+        return SolutionAssistValidator.validate(request, result);
+    }
+
+    /** 고정 ANSWER 결과예요. 첫 근거만 인용하고, 근거 제목에 "[AI_FAIL]"이 있으면 실패해요. */
+    @Override
+    public SolutionAssistAnswerResult answerSolutionAssist(SolutionAssistAnswerRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("상담 assist ANSWER 요청이 필요해요.");
+        }
+        if (request.verifiedReferences().stream().anyMatch(reference -> reference.title().contains("[AI_FAIL]"))) {
+            throw new AiUnavailableException("가짜 상담 assist ANSWER 실패");
+        }
+        var result = new SolutionAssistAnswerResult(SolutionAssistStatus.ANSWERED,
+                "검토된 안내의 순서대로 확인하고, 화면의 대응 카드를 먼저 따라 주세요.",
+                List.of(request.verifiedReferences().getFirst().code()), null);
+        return SolutionAssistValidator.validate(request, result);
+    }
 
     /** 검색·설명 품질을 대신하지 않는 고정 개발용 결과예요. 실패 표식은 근거가 있을 때만 사용해요. */
     @Override

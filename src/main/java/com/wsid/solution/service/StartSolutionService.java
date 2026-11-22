@@ -15,6 +15,7 @@ import com.wsid.solution.domain.SolutionMessage;
 import com.wsid.solution.domain.SolutionOwner;
 import com.wsid.solution.domain.SolutionQuestion;
 import com.wsid.solution.domain.SolutionSession;
+import com.wsid.solution.domain.SolutionTitles;
 import com.wsid.solution.dto.StartSolutionRequest;
 import com.wsid.solution.dto.StartSolutionResponse;
 import com.wsid.solution.repository.SolutionMessageRepository;
@@ -35,7 +36,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 /**
  * SOL-01 상담 시작.
  * 입력·민감정보 확인 → 소유자 결정 → AI-06(트랜잭션 밖) → 사실·카드·질문 결정 → 짧은 저장 트랜잭션.
- * 피해 설명 원문은 AI 요청에만 쓰고 DB·세션·로그에 남기지 않아요.
+ * 피해 설명 원문은 AI 요청에만 쓰고 DB·세션·로그에 남기지 않아요. 예외로 목록 제목용 앞 40자만 title에 저장해요.
  */
 @Service
 public class StartSolutionService {
@@ -92,11 +93,12 @@ public class StartSolutionService {
             throw new ApiException(ErrorCode.RESPONSE_CONTENT_UNAVAILABLE);
         }
         SolutionQuestion question = SolutionQuestion.next(facts).orElse(null);
+        String title = request.description().map(SolutionTitles::fromDescription).orElse(null);
 
         return transaction.execute(status -> {
             Instant now = clock.instant();
             SolutionSession session = sessions.saveAndFlush(
-                    SolutionSession.start(resolvedOwner, facts, responseCards, question, now));
+                    SolutionSession.start(resolvedOwner, facts, responseCards, question, title, now));
             long id = session.getId();
             messages.save(described
                     ? SolutionMessage.of(id, MessageSender.USER, InputKind.TEXT, 1, DESCRIPTION_RECEIVED, requestId, now)

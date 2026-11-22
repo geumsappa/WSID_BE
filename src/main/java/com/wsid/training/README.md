@@ -12,7 +12,7 @@
 | 대화와 화면 상태 복구 | - | 상 | 구현 (선택지 복구는 미구현) | `TrainingService.getState` |
 | AI가 먼저 질문 | SIM-001 | 상 | 구현 (문구는 코드 상수) | `ReviewedTexts.DISCOVERY_FIRST_QUESTION` |
 | 답변에 맞춘 후속 질문 | SIM-001 · I1 | 상 | 임시: 첫 답변 뒤 바로 훈련 시작 | `TrainingService.finishDiscovery` |
-| 이미지 첨부와 OCR | SIM-001 · I1 | 중 | 미구현 | - |
+| 이미지 첨부와 OCR | SIM-001 · I1 | 중 | 훈련에서 제외. 피해 대응 SOL-06으로 이동 | - |
 | 일상 정보에서 위험 요소 추출 | SIM-002 · I1 | 상 | 미구현 | `context_facts` 컬럼 |
 | 훈련할 판단 지점 선정 | SIM-004 · I1 | 상 | 미구현 | - |
 | 개인화 시나리오 생성 | SIM-005 · I2 | 상 | 임시: 기본 유형 고정 | `scenario_json` 컬럼 |
@@ -44,7 +44,7 @@
 | TRN-02 | GET | `/api/trainings/active` | 필요 | 구현. 만료되지 않은 최근 훈련, 없으면 `data: null` |
 | TRN-03 | GET | `/api/trainings/{id}` | 필요 | 구현. 본인 훈련 상태·대화·저장된 선택지 복원 |
 | TRN-04 | POST | `/api/trainings/{id}/discovery/messages` | 필요 | 구현. 상황 파악 답변과 다음 질문 저장, 민감정보 및 중복 요청 차단 |
-| TRN-05 | POST | `/api/trainings/{id}/discovery/images` | 필요 | 구현. PNG/JPEG 최대 3장, 장당 5MB. 실제 OCR은 AI-02 필요 |
+| TRN-05 | POST | `/api/trainings/{id}/discovery/images` | 필요 | 제거. 같은 검증을 피해 대응 SOL-06으로 옮겼어요 |
 | TRN-06 | POST | `/api/trainings/{id}/scenario` | 필요 | 구현. 상황 파악 완료 후 시나리오 생성과 SCENARIO_READY 전환 |
 | TRN-07 | POST | `/api/trainings/{id}/start` | 필요 | 구현. 준비된 시나리오로 가상 훈련 시작 |
 | TRN-08 | POST | `/api/trainings/{id}/messages` | 필요 | 구현. 텍스트·선택지 요청 처리, 다음 대사·판정·종료 제안 반환 |
@@ -100,6 +100,5 @@ TRN-01~11은 `/api/trainings`로 호출해요. 변경 요청은 로그인 세션
 
 ## 추가 구현 조건
 
-- OCR(TRN-05/AI-02): PNG·JPEG, 최대 3장, 장당 5MB, 원본 최대 10분 보관. 읽을 수 없으면 텍스트 입력을 안내해요.
 - 모의 페이지(TRN-09/10): 금융·공공 민원·채용 템플릿에 가상 기관명·로고를 사용해요. 링크는 현재 훈련 안에서 열고, 모의 로그인은 준비된 가상 정보만 사용해요. 화면 행동과 대화에서 말한 행동을 구분해 기록해요.
 - 훈련 입력의 민감정보 감지·재입력 안내, 원문 삭제, 실제 계정 인증은 미구현이에요. 훈련 무활동 24시간은 로그인 세션 만료 시간과 별개예요.

@@ -64,8 +64,7 @@ public class ReportService {
         var sourceCredits = training.getScenarioJson() == null ? List.<com.wsid.report.domain.ReportSource>of()
                 : ReportSources.fromScenario(json.readTree(training.getScenarioJson()));
         evaluation = evaluation.withSources(sourceCredits);
-        String title = "SECONDHAND_TRADE".equals(fraudType(training.getFraudTypeCode()))
-                ? "중고거래 금융사기 예방 훈련" : "금융사기 예방 훈련";
+        String title = titleOf(fraudType(training.getFraudTypeCode()));
         return reports.save(TrainingReport.create(training.getId(), title, json.writeValueAsString(evaluation), now)).getId();
     }
 
@@ -136,6 +135,19 @@ public class ReportService {
 
     private static ApiException notFound() {
         return new ApiException(ErrorCode.REPORT_NOT_FOUND);
+    }
+
+    /** 사기 유형별 리포트 제목. 모르는 유형이면 공통 제목 */
+    public static String titleOf(String fraudTypeCode) {
+        if (fraudTypeCode == null) return "금융사기 예방 훈련";
+        return switch (fraudTypeCode) {
+            case "SECONDHAND_TRADE" -> "중고거래 금융사기 예방 훈련";
+            case "SMISHING" -> "택배·문자 스미싱 예방 훈련";
+            case "LOAN_FRAUD" -> "대출 사기 예방 훈련";
+            case "JOB_SCAM" -> "취업 사기 예방 훈련";
+            case "INSTITUTION_IMPERSONATION" -> "기관 사칭 사기 예방 훈련";
+            default -> "금융사기 예방 훈련";
+        };
     }
 
     private static String fraudType(String code) {

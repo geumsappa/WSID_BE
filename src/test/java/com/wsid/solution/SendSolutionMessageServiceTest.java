@@ -236,4 +236,63 @@ class SendSolutionMessageServiceTest {
         assertFalse(output.getAll().contains(cause));
         assertFalse(output.getAll().contains(request.content()));
     }
+
+    // SOL-06: 사진에서 읽은 글자를 SOL-03 텍스트처럼 반영
+    private com.wsid.solution.dto.SolutionMessageResponse sendImage(UUID requestId, Supplier<String> recognize) {
+        return service.sendRecognizedText(301, requestId, 2, photo(recognize), () -> Optional.of(owner));
+    }
+
+    private static Supplier<SendSolutionMessageService.RecognizedPhoto> photo(Supplier<String> recognize) {
+        return () -> new SendSolutionMessageService.RecognizedPhoto(recognize.get(), "사진(송금 내역)을 제출했습니다.");
+    }
+
+    @Test void recognizedTextRunsOcrOutsideTransactionAndSavesOnlyPlaceholder() {
+        String recognized = "중고거래 판매자에게 50만원을 송금했어요";
+        when(ai.extractSolutionFacts(any())).thenAnswer(i -> {
+            assertFalse(active.get());
+            com.wsid.ai.dto.SolutionExtractRequest req = i.getArgument(0);
+            assertEquals(recognized, req.description());
+            return result("YES", "UNKNOWN", "UNKNOWN", "UNKNOWN");
+        });
+        var response = sendImage(UUID.randomUUID(), () -> { assertFalse(active.get()); return recognized; });
+        assertEquals(3, response.stateVersion());
+        assertEquals("YES", response.facts().get("transferredMoney"));
+        assertEquals("사진(송금 내역)을 제출했습니다.", saved.getFirst().getSafeContent());
+        assertTrue(saved.stream().noneMatch(m -> recognized.equals(m.getSafeContent())));
+    }
+
+    @Test void recognizedTextChecksSessionBeforeCallingOcr() {
+        var ocrCalled = new AtomicBoolean();
+        Supplier<String> ocr = () -> { ocrCalled.set(true); return "설명"; };
+        UUID duplicate = UUID.randomUUID();
+        when(messages.existsBySolutionIdAndClientRequestId(301L, duplicate)).thenReturn(true);
+        fails(ErrorCode.DUPLICATE_REQUEST, () -> sendImage(duplicate, ocr));
+        ReflectionTestUtils.setField(session, "stateVersion", 3);
+        fails(ErrorCode.STATE_VERSION_CONFLICT, () -> sendImage(UUID.randomUUID(), ocr));
+        fails(ErrorCode.SOLUTION_NOT_FOUND,
+                () -> service.sendRecognizedText(301, UUID.randomUUID(), 2, photo(ocr), Optional::empty));
+        assertFalse(ocrCalled.get());
+        verifyNoInteractions(ai);
+    }
+
+    @Test void photoSkipsSensitiveGuardButChatTextKeepsIt() {
+        String withAccount = "계좌 110-123-456789로 50만원 보냈어요";
+        // 일반 채팅(SOL-03 TEXT)은 계속 민감정보 확인으로 거부돼요.
+        var chat = SendSolutionMessageRequest.from(new tools.jackson.databind.ObjectMapper().readTree(
+                "{\"requestId\":\"" + UUID.randomUUID() + "\",\"stateVersion\":2,\"inputKind\":\"TEXT\",\"content\":\""
+                        + withAccount + "\"}"));
+        fails(ErrorCode.SENSITIVE_DATA_DETECTED, () -> service.send(301, chat, () -> Optional.of(owner)));
+        verifyNoInteractions(ai);
+        // 사진은 계좌·전화번호가 찍히는 게 보통이라 확인을 건너뛰고 사실 추출로 넘어가요. 원문은 저장하지 않아요.
+        when(ai.extractSolutionFacts(any())).thenReturn(result("YES", "UNKNOWN", "UNKNOWN", "UNKNOWN"));
+        var response = sendImage(UUID.randomUUID(), () -> withAccount);
+        assertEquals("YES", response.facts().get("transferredMoney"));
+        assertTrue(saved.stream().noneMatch(m -> m.getSafeContent() != null && m.getSafeContent().contains("110-123")));
+    }
+
+    @Test void ocrErrorsSaveNothing() {
+        fails(ErrorCode.OCR_FAILED, () -> sendImage(UUID.randomUUID(), () -> { throw new com.wsid.common.error.ApiException(ErrorCode.OCR_FAILED); }));
+        verifyNoInteractions(ai);
+        assertTrue(saved.isEmpty());
+    }
 }

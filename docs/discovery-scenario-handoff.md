@@ -39,3 +39,5 @@ setCanGenerate(d.phase === "DISCOVERY" && d.canGenerateScenario === true)
 - 정보 없음·거절·잘못된 AI 응답에서 생성 준비 완료 방지
 - 기본 질문 반복 및 사용자가 말하지 않은 기관명 추가 방지
 - 실제 Spring HTTP → FastAPI → OpenAI 상황 입력·생성 및 백엔드 결과 검증
+
+2026-11-22 통합: 최신 develop의 훈련 유형별 리포트 제목, 앱 클릭 행동, 대응 assist 변경을 유지하며 출처 저장/PDF 기능을 합쳤습니다. 선택 clickedAppLink가 없는 이전 AI 평가·저장 리포트는 false로 처리하며, 새 응답의 값은 그대로 보존하고 잘못된 타입은 거절합니다. 출처 표시는 AI의 generationEvidence에서 실제 사용한 자료만 보존합니다. FE LSH/report-source-attribution은 최신 main의 ReportSheet/인쇄에도 출처를 연결했습니다.

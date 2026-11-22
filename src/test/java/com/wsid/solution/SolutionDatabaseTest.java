@@ -111,8 +111,10 @@ class SolutionDatabaseTest {
         assertNotNull(stored.get(0).get("client_request_id"));
         assertEquals("SYSTEM", stored.get(1).get("sender"));
         assertNull(stored.get(1).get("client_request_id"));
+        // 목록 제목(title)에만 설명 앞 40자가 남고, 다른 컬럼·메시지에는 원문이 없어요.
+        assertEquals(SECRET, jdbc.queryForObject("SELECT title FROM solution_sessions WHERE id = ?", String.class, response.solutionId()));
         Integer leaked = jdbc.queryForObject("SELECT count(*) FROM solution_sessions s LEFT JOIN solution_messages m "
-                + "ON m.solution_id = s.id WHERE s.id = ? AND (s::text LIKE '%비공개문장%' OR m::text LIKE '%비공개문장%')",
+                + "ON m.solution_id = s.id WHERE s.id = ? AND ((to_jsonb(s) - 'title')::text LIKE '%비공개문장%' OR m::text LIKE '%비공개문장%')",
                 Integer.class, response.solutionId());
         assertEquals(0, leaked);
     }

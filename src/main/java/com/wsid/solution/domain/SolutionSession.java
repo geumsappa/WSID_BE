@@ -22,7 +22,7 @@ import tools.jackson.databind.ObjectMapper;
 
 /**
  * solution_sessions 테이블. 피해 대응 한 건의 현재 상태예요.
- * 확인한 사실과 적용된 카드 코드·버전만 저장하고, 피해 설명 원문은 저장하지 않아요.
+ * 확인한 사실과 적용된 카드 코드·버전을 저장해요. 피해 설명은 목록 제목용 앞 40자(title)만 남기고 전체 원문은 저장하지 않아요.
  * 소유자는 회원(user_id)과 비회원(anonymous_owner_id) 중 정확히 하나예요(DB CHECK 제약).
  */
 @Entity
@@ -46,6 +46,10 @@ public class SolutionSession {
     @Column(nullable = false, length = 20)
     private SolutionStatus status;
 
+    /** SOL-07 목록 제목. 민감정보 검사를 통과한 첫 피해 설명의 앞 40자예요. 설명 없이 시작하면 null이에요. */
+    @Column(name = "title", length = 60, updatable = false)
+    private String title;
+
     @Column(name = "fraud_type_code", length = 50)
     private String fraudTypeCode;
 
@@ -63,6 +67,29 @@ public class SolutionSession {
     @Column(name = "next_question_json", columnDefinition = "jsonb")
     @ColumnTransformer(write = "cast(? as jsonb)")
     private String nextQuestionJson;
+
+    @Column(name = "pending_assist_json", columnDefinition = "jsonb")
+    @ColumnTransformer(write = "cast(? as jsonb)")
+    private String pendingAssistJson;
+
+    public PendingAssist readPendingAssist() {
+        if (pendingAssistJson == null) return null;
+        try {
+            var node = JSON.readTree(pendingAssistJson);
+            if (!node.isObject() || node.size() != 5
+                    || !node.path("questionId").isString() || !node.path("fact").isString()
+                    || !node.path("questionIntent").isString() || !node.path("askedFactKeys").isArray()
+                    || !node.path("remainingClarifications").isInt()) throw new IllegalArgumentException();
+            String id = node.path("questionId").asString();
+            if (!UUID.fromString(id).toString().equalsIgnoreCase(id)) throw new IllegalArgumentException();
+            for (var key : node.path("askedFactKeys")) if (!key.isString()) throw new IllegalArgumentException();
+            return JSON.treeToValue(node, PendingAssist.class);
+        } catch (RuntimeException e) { throw corrupted("pending_assist_json"); }
+    }
+
+    public static String encodePendingAssist(PendingAssist state) {
+        return state == null ? null : JSON.writeValueAsString(state);
+    }
 
     @Version
     @Column(name = "state_version", nullable = false)
@@ -87,6 +114,12 @@ public class SolutionSession {
      */
     public static SolutionSession start(SolutionOwner owner, SolutionFacts facts, List<ResponseCard> cards,
             SolutionQuestion nextQuestion, Instant now) {
+        return start(owner, facts, cards, nextQuestion, null, now);
+    }
+
+    /** @param title {@link SolutionTitles#fromDescription}로 만든 목록 제목. 설명이 없으면 null. */
+    public static SolutionSession start(SolutionOwner owner, SolutionFacts facts, List<ResponseCard> cards,
+            SolutionQuestion nextQuestion, String title, Instant now) {
         if (owner == null || facts == null || cards == null || now == null) {
             throw new IllegalArgumentException("상담 초기 상태가 올바르지 않아요.");
         }
@@ -94,6 +127,7 @@ public class SolutionSession {
         session.userId = owner.userId();
         session.anonymousOwnerId = owner.anonymousId();
         session.status = SolutionStatus.ACTIVE;
+        session.title = title;
         session.factsJson = JSON.writeValueAsString(facts.toKeyMap());
         session.cardCodesJson = JSON.writeValueAsString(cards.stream().map(card -> {
             Map<String, Object> ref = new LinkedHashMap<>();
@@ -182,6 +216,10 @@ public class SolutionSession {
     private IllegalStateException corrupted(String column) {
         return new IllegalStateException("상담 저장값 형식이 올바르지 않아요: solutionId=" + id + ", column=" + column);
     }
+
+    public String getTitle() { return title; }
+    public Instant getCreatedAt() { return createdAt; }
+    public Instant getCompletedAt() { return completedAt; }
 
     public Long getId() {
         return id;

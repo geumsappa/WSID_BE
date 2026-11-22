@@ -22,6 +22,8 @@ public enum ErrorCode {
     /** 없는 세션과 다른 사람의 세션을 구분하지 않고 같은 404로 응답해요. */
     SESSION_NOT_FOUND(HttpStatus.NOT_FOUND, "세션을 찾을 수 없어요."),
     TRAINING_NOT_FOUND(HttpStatus.NOT_FOUND, "훈련을 찾을 수 없어요."),
+    /** 훈련은 있지만 연결된 모의 페이지(시나리오)가 없을 때. TRAINING_NOT_FOUND와 구분해요. */
+    MOCK_PAGE_NOT_FOUND(HttpStatus.NOT_FOUND, "이 훈련에는 열 수 있는 안내 페이지가 없어요."),
     INVALID_TRAINING_PHASE(HttpStatus.CONFLICT, "현재 훈련 단계에서 사용할 수 없는 요청이에요."),
     STATE_VERSION_CONFLICT(HttpStatus.CONFLICT, "화면이 최신 상태가 아니에요. 다시 불러와 주세요."),
     FILE_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "이미지는 최대 3장, 장당 5MB까지 첨부할 수 있어요."),
@@ -38,6 +40,7 @@ public enum ErrorCode {
     SENSITIVE_DATA_DETECTED(HttpStatus.BAD_REQUEST, "주민등록번호, 계좌·카드번호, 전화번호, 인증번호 같은 정보는 빼고 다시 입력해 주세요."),
     /** 없는 상담과 다른 사람의 상담을 구분하지 않고 같은 404로 응답해요(SOL-02~05). */
     SOLUTION_NOT_FOUND(HttpStatus.NOT_FOUND, "상담을 찾을 수 없어요."),
+    ASSIST_QUESTION_PENDING(HttpStatus.CONFLICT, "추가 질문에 먼저 답하거나 피해 사실을 수정해 주세요."),
     SOLUTION_FINISHED(HttpStatus.CONFLICT, "이미 끝난 상담이에요."),
     /** 규칙이 요구하는 검토된 대응 카드가 없을 때. 긴급 안내를 빠뜨린 성공 응답을 보내지 않아요. */
     RESPONSE_CONTENT_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "대응 안내를 준비하지 못했어요. 잠시 후 다시 시도해 주세요.");

@@ -19,19 +19,14 @@ import com.wsid.training.dto.TrainingRequests;
 import com.wsid.training.dto.TrainingResponses;
 import com.wsid.training.repository.TrainingMessageRepository;
 import com.wsid.training.repository.TrainingSessionRepository;
-import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.regex.Pattern;
-import org.springframework.core.io.ByteArrayResource;
-import org.springframework.http.MediaType;
-import org.springframework.http.client.MultipartBodyBuilder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.springframework.web.multipart.MultipartFile;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
@@ -41,6 +36,8 @@ public class TrainingWorkflow {
     private static final java.util.Set<String> FRAUD_TYPES = java.util.Set.of("SECONDHAND_TRADE", "SMISHING", "MESSENGER_PHISHING",
             "LOAN_FRAUD", "INSTITUTION_IMPERSONATION", "INVESTMENT_FRAUD", "JOB_SCAM");
     private static final long MAX_IMAGE_BYTES = 5L * 1024 * 1024;
+
+    private static final String TYPE = "SECONDHAND_TRADE";
     private static final List<TrainingResponses.Option> SAFE_OPTIONS = List.of(
             new TrainingResponses.Option("OFFICIAL_CHANNEL_CHECK", "공식 채널에서 직접 확인할게요."),
             new TrainingResponses.Option("END_CONTACT", "대화를 중단할게요."));
@@ -119,37 +116,6 @@ public class TrainingWorkflow {
         });
     }
 
-    public TrainingResponses.Ocr ocr(long id, List<MultipartFile> images) {
-        checkPhase(owned(id, currentUser.id()), TrainingPhase.DISCOVERY);
-        if (images.isEmpty()) throw error(ErrorCode.INVALID_REQUEST);
-        if (images.size() > 3) throw error(ErrorCode.FILE_TOO_LARGE);
-        var multipart = new MultipartBodyBuilder();
-        for (MultipartFile image : images) {
-            if (image.getSize() > MAX_IMAGE_BYTES) throw error(ErrorCode.FILE_TOO_LARGE);
-            try {
-                byte[] bytes = image.getBytes();
-                MediaType type = imageType(bytes);
-                multipart.part("images", new ByteArrayResource(bytes)).contentType(type)
-                        .filename(type.equals(MediaType.IMAGE_PNG) ? "image.png" : "image.jpg");
-            } catch (IOException e) {
-                throw error(ErrorCode.OCR_FAILED);
-            }
-        }
-        if (ai.isMock()) return new TrainingResponses.Ocr("", false);
-        JsonNode response;
-        try {
-            response = ai.request("/ocr/extract", multipart.build());
-        } catch (ApiException e) {
-            throw error(ErrorCode.OCR_FAILED);
-        }
-        if (!response.path("usable").asBoolean()) return new TrainingResponses.Ocr("", false);
-        String text = response.path("recognizedText").asString("");
-        if (text.isBlank() || text.length() > 1000 || SENSITIVE.matcher(text).find() || LIVE_LINK.matcher(text).find()) {
-            throw error(ErrorCode.OCR_FAILED);
-        }
-        return new TrainingResponses.Ocr(text, true);
-    }
-
     public TrainingResponses.Scenario scenario(long id, TrainingRequests.Versioned request) {
         long owner = currentUser.id();
         var session = checked(id, owner, request, TrainingPhase.DISCOVERY);
@@ -220,15 +186,21 @@ public class TrainingWorkflow {
         var page = availablePage(session);
         boolean showPage = !pageSubmitted && page != null && (result.showPage() || containsMockLink(result.reply()) || keyScene) && !finish;
         boolean revealKeyScene = !session.isKeySceneShown() && (showPage || (keyScene && !finish));
-        String reply = finish ? ReviewedTexts.FINISHED
+        // AI가 대화를 마무리했으면(사용자가 끊었거나 시나리오 완료) 사기범의 마지막 한마디를 그대로 보여 주고,
+        // 최대 턴에 닿아 강제로 끝날 때만 안내 문구를 써요. 종료 안내는 프론트의 결과 카드가 이어서 보여 줘요.
+        String reply = finish ? (result.shouldFinish() && result.reply() != null && !result.reply().isBlank()
+                        ? result.reply() : ReviewedTexts.FINISHED)
                 : keyScene ? "거래 내용을 다시 확인해 주세요. 훈련용 확인 화면에서 의심스러운 점을 살펴볼 수 있어요."
                 : result.reply();
         var options = finish ? List.<TrainingResponses.Option>of() : optionsFor(reply);
         return write(id, owner, request, TrainingPhase.SIMULATION, locked -> {
             Instant now = Instant.now();
             int sequence = nextSequence(id);
+            // 이름·주소처럼 규칙으로 못 가리는 정보는 AI가 가린 문장(maskedInput)으로 바꿔서 저장해요 (원문은 DB에 남기지 않음)
+            String masked = choice == null ? result.maskedInput() : null;
+            String stored = masked != null ? masked : content;
             var input = choice != null ? TrainingMessage.selected(id, sequence, content, choice.code(), request.requestId(), now)
-                    : TrainingMessage.fromUser(id, TrainingPhase.SIMULATION, sequence, content, null, request.requestId(), now);
+                    : TrainingMessage.fromUser(id, TrainingPhase.SIMULATION, sequence, stored, null, request.requestId(), now);
             input.recordEvaluation(json.writeValueAsString(result.actions()));
             messages.save(input);
             var answer = TrainingMessage.fromAi(id, TrainingPhase.SIMULATION, sequence + 1, reply, now);
@@ -242,7 +214,7 @@ public class TrainingWorkflow {
             locked.recordSimulationTurn(revealKeyScene, finish, rules, now);
             sessions.flush();
             return new TrainingResponses.Message(new TrainingResponses.Reply(MessageSender.AI, reply, options),
-                    result.actions(), count, finish, showPage ? page : null, locked.getStateVersion());
+                    result.actions(), count, finish, showPage ? page : null, locked.getStateVersion(), masked);
         });
     }
 
@@ -254,6 +226,15 @@ public class TrainingWorkflow {
 
     public TrainingResponses.Action action(long id, TrainingRequests.Action request) {
         return write(id, currentUser.id(), request, TrainingPhase.SIMULATION, session -> {
+            if (request.actionCode() == TrainingRequests.ActionCode.MOCK_APP_CLICK) {
+                // 앱 설치 링크는 모의 페이지와 상관없이 대화에서 바로 눌러요. 눌렀다는 사실만 남겨요.
+                Instant now = Instant.now();
+                messages.save(TrainingMessage.action(id, nextSequence(id), request.actionCode().name(),
+                        null, request.requestId(), now));
+                session.recordActivity(rules, now);
+                sessions.flush();
+                return new TrainingResponses.Action(true, session.getStateVersion());
+            }
             var page = requirePage(session);
             var meta = request.actionMeta();
             if (meta != null && (!page.templateCode().equals(meta.templateCode())
@@ -291,7 +272,7 @@ public class TrainingWorkflow {
             long reportId = checkedEvaluation != null ? reports.recordEvaluation(locked, checkedEvaluation, now)
                     : reports.recordCompletion(locked, verified,
                         new ReportEvaluation.MockPageEvaluation(events.contains("MOCK_PAGE_OPEN"),
-                            events.contains("MOCK_LOGIN_ATTEMPT"), verified), now);
+                            events.contains("MOCK_LOGIN_ATTEMPT"), verified, events.contains("MOCK_APP_CLICK")), now);
             return finished(id, reportId);
         });
     }
@@ -303,6 +284,8 @@ public class TrainingWorkflow {
             if (!response.path(field).isArray()) throw error(ErrorCode.AI_SERVICE_UNAVAILABLE);
         }
         if (!response.path("mockPageEvaluation").isObject()) throw error(ErrorCode.AI_SERVICE_UNAVAILABLE);
+        // 리포트 타임라인(답변 번호별 피드백)은 많아야 몇 칸이에요. 지나치게 길면 잘못된 응답으로 봐요
+        if (response.path("turnFeedback").size() > 10) throw error(ErrorCode.AI_SERVICE_UNAVAILABLE);
         safeGenerated(response.path("overallFeedback").asString(), 4000);
         safeGenerated(response.toString(), 50000);
         try {
@@ -327,7 +310,8 @@ public class TrainingWorkflow {
         payload.put("messages", conversation(session.getId()).stream().filter(m -> "SIMULATION".equals(m.get("phase"))).toList());
         payload.put("userInput", content);
         payload.put("turnCount", count);
-        if (scenario.path("currentScene").isNumber()) payload.put("currentScene", scenario.path("currentScene").asInt());
+        // 장면 번호는 항상 보내요. 없으면 AI가 대사 글자로 장면을 추측해야 해서 장면이 튈 수 있어요 (첫 턴은 1장면)
+        payload.put("currentScene", scenario.path("currentScene").isNumber() ? scenario.path("currentScene").asInt() : 1);
         var response = ai.request("/simulation/reply", payload);
         if (!response.path("recognizedActions").isArray() || !response.path("shouldFinish").isBoolean()) {
             throw error(ErrorCode.AI_SERVICE_UNAVAILABLE);
@@ -346,7 +330,20 @@ public class TrainingWorkflow {
             if (nextScene < 1 || nextScene > Math.max(1, scenario.path("keyScenes").size())) throw error(ErrorCode.AI_SERVICE_UNAVAILABLE);
         }
         return new Suggestion(safeGenerated(response.path("reply").asString(), 1000), List.copyOf(actions),
-                response.path("shouldFinish").asBoolean(), response.path("mockPage").isObject(), nextScene);
+                response.path("shouldFinish").asBoolean(), response.path("mockPage").isObject(), nextScene,
+                maskedInputOf(response.path("maskedInput")));
+    }
+
+    /** AI가 돌려준 가린 문장을 한 번 더 숫자 패턴으로 가려서 써요. 이상하면(비었거나 길거나 링크 포함) 쓰지 않아요 */
+    static String maskedInputOf(JsonNode node) {
+        if (node == null || !node.isString()) return null;
+        String text = node.asString("").strip();
+        if (text.isEmpty() || text.length() > 300) return null;
+        try {
+            return simulationInput(text);
+        } catch (ApiException e) {
+            return null;
+        }
     }
 
     private List<Map<String, String>> discoveryHistory(long id) {
@@ -401,13 +398,19 @@ public class TrainingWorkflow {
                 evaluation == null ? List.of() : evaluation.strengths(), improvements.stream().distinct().limit(10).toList(),
                 evaluation == null ? List.of() : evaluation.turnFeedback(),
                 evaluation == null ? new ReportEvaluation.MockPageEvaluation(events.contains("MOCK_PAGE_OPEN"),
-                        events.contains("MOCK_LOGIN_ATTEMPT"), verified) : evaluation.mockPageEvaluation(),
+                        events.contains("MOCK_LOGIN_ATTEMPT"), verified, events.contains("MOCK_APP_CLICK"))
+                        : evaluation.mockPageEvaluation(),
                 evaluation == null ? List.of("개인 자료를 요구받으면 직접 찾은 공식 채널에서 요청을 확인하세요.") : evaluation.recommendations());
     }
 
-    private record Suggestion(String reply, List<String> actions, boolean shouldFinish, boolean showPage, Integer nextScene) {
+    /** maskedInput: AI가 이름·주소 등을 가린 사용자 문장. 있으면 원문 대신 저장하고 화면에도 이 값을 보여 줘요 */
+    private record Suggestion(String reply, List<String> actions, boolean shouldFinish, boolean showPage, Integer nextScene,
+            String maskedInput) {
+        private Suggestion(String reply, List<String> actions, boolean shouldFinish, boolean showPage, Integer nextScene) {
+            this(reply, actions, shouldFinish, showPage, nextScene, null);
+        }
         private Suggestion(String reply, List<String> actions, boolean shouldFinish, boolean showPage) {
-            this(reply, actions, shouldFinish, showPage, null);
+            this(reply, actions, shouldFinish, showPage, null, null);
         }
     }
 
@@ -419,6 +422,7 @@ public class TrainingWorkflow {
                 String event = switch (message.getActionCode()) {
                     case "MOCK_LOGIN_ATTEMPT" -> "[훈련 행동: 본인 확인 정보 제출 완료]";
                     case "OFFICIAL_CHANNEL_CHECK" -> "[훈련 행동: 공식 경로 확인]";
+                    case "MOCK_APP_CLICK" -> "[훈련 행동: 가상 앱 설치 링크 누름]";
                     default -> null;
                 };
                 if (event != null && emitted.add(message.getActionCode())) {
@@ -513,20 +517,48 @@ public class TrainingWorkflow {
     static TrainingResponses.ScenarioSummary summary(JsonNode scenario) {
         var persona = scenario.path("persona");
         String organization = actorLabel(persona.path("organization").asString(""));
-        if (List.of("없음", "개인", "해당 없음").contains(organization)) organization = "";
+        // "개인", "개인 구매자"처럼 기관이 아니라 개인이면 기관 이름으로 쓰지 않아요
+        if (List.of("없음", "해당 없음").contains(organization) || organization.startsWith("개인")) organization = "";
         String role = actorLabel(persona.path("role").asString(""));
         String name = actorLabel(persona.path("name").asString(""));
+        // 기관 이름과 역할이 겹치면 한 번만 써요 (예: "한결배송 배송팀" + "배송팀" → "한결배송 배송팀")
         String sender = !organization.isBlank()
-                ? (role.contains(organization) ? role : (organization + " " + role).strip())
-                : (!name.isBlank() ? name : "상대방");
+                ? (role.contains(organization) ? role
+                    : !role.isBlank() && organization.contains(role) ? organization
+                    : (organization + " " + role).strip())
+                : (!name.isBlank() ? name : !role.isBlank() ? role : "상대방");
         return new TrainingResponses.ScenarioSummary(safeGenerated(scenario.path("title").asString(), 200),
                 safeGenerated(scenario.path("description").asString(), 1000), safeGenerated(sender, 200),
-                organization.isBlank() ? null : safeGenerated(organization, 100));
+                organization.isBlank() ? null : safeGenerated(organization, 100),
+                channelCode(scenario.path("channel").asString("")));
+    }
+
+    /** AI 시나리오의 채널(한글)을 화면용 고정 코드로 바꿔요. 모델 글자를 그대로 내보내지 않아요 */
+    static String channelCode(String channel) {
+        if (channel.contains("중고")) return "MARKET";
+        if (channel.contains("문자")) return "SMS";
+        if (channel.contains("이메일") || channel.contains("메일")) return "EMAIL";
+        if (channel.contains("SNS")) return "SNS";
+        if (channel.contains("메신저")) return "MESSENGER";
+        return null;
     }
 
     private static String actorLabel(String value) {
         return value.replace("(가상)", "").replace("(사칭)", "").replace("사칭", "")
                 .replaceAll("\\s+", " ").strip();
+    }
+
+    /** 시나리오의 상대 역할·기관·제목·설명으로 모의 페이지 템플릿을 골라요 */
+    static MockPageTemplates.Template templateOf(JsonNode scenario) {
+        var persona = scenario.path("persona");
+        return MockPageTemplates.pick(persona.path("role").asString(""), persona.path("organization").asString(""),
+                scenario.path("title").asString(""), scenario.path("description").asString(""));
+    }
+
+    /** 시나리오 내용으로 사기 유형을 정해요. 정하지 못하면 기본 유형(TYPE) */
+    static String fraudTypeOf(JsonNode scenario) {
+        String code = templateOf(scenario).fraudTypeCode();
+        return code == null ? TYPE : code;
     }
 
     static boolean containsMockLink(String text) {
@@ -535,21 +567,20 @@ public class TrainingWorkflow {
 
     static TrainingResponses.MockPage availablePage(TrainingSession session) {
         JsonNode scenario = session.getScenarioJson() == null ? null : new ObjectMapper().readTree(session.getScenarioJson());
-        // Every stored scenario can use this fixed local template when a link is requested.
+        // Every stored scenario gets a fixed local template chosen from its own words (MockPageTemplates).
         // Model-generated URLs or page HTML are never accepted.
         if (scenario == null) return BANK_NOTICE.templateCode().equals(session.getMockPageTemplateCode()) ? BANK_NOTICE : null;
-        var persona = scenario.path("persona");
-        String organization = actorLabel(persona.path("organization").asString(""));
-        String role = persona.path("role").asString("");
-        return new TrainingResponses.MockPage(BANK_NOTICE.templateCode(),
-                role.contains("채용") ? "지원자 본인 확인" : "본인 확인하기",
+        String organization = actorLabel(scenario.path("persona").path("organization").asString(""));
+        // 사기 유형에 맞는 화면 종류 (택배 → DELIVERY_ADDRESS, 채용 → RECRUIT_APPLICANT ...)
+        var template = templateOf(scenario);
+        return new TrainingResponses.MockPage(template.code(), template.title(),
                 organization.isBlank() ? BANK_NOTICE.institutionName() : safeGenerated(organization, 100),
-                BANK_NOTICE.screenCode(), true);
+                template.screenCode(), true);
     }
 
     private static TrainingResponses.MockPage requirePage(TrainingSession session) {
         var page = availablePage(session);
-        if (page == null) throw error(ErrorCode.TRAINING_NOT_FOUND);
+        if (page == null) throw error(ErrorCode.MOCK_PAGE_NOT_FOUND);
         return page;
     }
 
@@ -587,15 +618,6 @@ public class TrainingWorkflow {
             throw error(ErrorCode.AI_SERVICE_UNAVAILABLE);
         }
         return text;
-    }
-
-    private static MediaType imageType(byte[] data) {
-        if (data.length >= 8 && (data[0] & 255) == 137 && data[1] == 80 && data[2] == 78 && data[3] == 71
-                && data[4] == 13 && data[5] == 10 && data[6] == 26 && data[7] == 10) return MediaType.IMAGE_PNG;
-        if (data.length >= 3 && (data[0] & 255) == 255 && (data[1] & 255) == 216 && (data[2] & 255) == 255) {
-            return MediaType.IMAGE_JPEG;
-        }
-        throw error(ErrorCode.INVALID_REQUEST);
     }
 
     private static ApiException error(ErrorCode code) { return new ApiException(code); }

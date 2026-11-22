@@ -40,7 +40,16 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 tasks.named('test') {
-    useJUnitPlatform { excludeTags 'db', 'integration' }
+    useJUnitPlatform { excludeTags 'db', 'integration', 'live-ai' }
+}
+
+tasks.register('liveAiTest', Test) {
+    description = 'Runs opt-in HTTP contract tests against a locally started AI server.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform { includeTags 'live-ai' }
+    outputs.upToDateWhen { false }
 }
 
 tasks.register('dbTest', Test) {

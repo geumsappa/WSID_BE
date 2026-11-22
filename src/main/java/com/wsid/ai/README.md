@@ -8,8 +8,8 @@ AI 서비스(FastAPI)를 부르는 유일한 통로예요. 다른 패키지는 `
 
 | 내부 API | 하는 일 | 쓰는 기능 | 상태 |
 |---|---|---|---|
-| I1 | 일상 대화: 후속 질문, 사실·위험 요소 추출, 판단 지점 선정, OCR | SIM-001, 002, 004 | AI-01 fake/HTTP 어댑터 구현; 위험 요소·판단 지점·OCR은 후속 작업 |
-| AI-02 | POST | `/internal/ai/ocr/extract` | 내부 | 어댑터 구현(`AiClient.extractText`, fake/HTTP multipart); TRN-05 연결·AI 서비스 통합 검증 미완료 |
+| I1 | 일상 대화: 후속 질문, 사실·위험 요소 추출, 판단 지점 선정, OCR | SIM-001, 002, 004 | AI-01 fake/HTTP 어댑터 구현; 위험 요소·판단 지점은 후속 작업. OCR(AI-02)은 피해 대응 SOL-06에서만 사용 |
+| AI-02 | POST | `/internal/ai/ocr/extract` | 내부 | FastAPI 구현(Tesseract `kor+eng`). Spring은 `AiClient.extractText`로 SOL-06에서만 호출([설계](../../../../../../docs/ai-02-ocr.md)) |
 | I2 | 개인화 시나리오 생성 | SIM-005 | AI-03 fake/HTTP 클라이언트 구현. 실제 FastAPI·훈련 저장 연결은 미완료 |
 | I3 | 가상 훈련 한 턴: 다음 대사, 행동 판정, 핵심 장면 제안, 가드레일 | SIM-007, 008, 011 | AI-04 새 클라이언트 구현. 기존 서비스 전환·실제 가드레일·핵심 장면 맥락 연결은 미완료 |
 | I4 | 리포트 평가 | SIM-010 | AI-05 fake/HTTP 클라이언트 구현. 실제 FastAPI·리포트 생성/저장 연결은 미완료 |
@@ -26,12 +26,13 @@ AI-01 개발 흐름과 요청·응답 초안은 [상황 파악 다음 질문 개
 | API ID | 메서드 | 경로 | 인증 | 현재 구현 |
 |---|---|---|---|---|
 | AI-01 | POST | `/internal/ai/discovery/next` | 내부 | fake 및 HTTP 어댑터·응답 계약 테스트 구현; 실제 FastAPI 통합 검증은 미완료 |
-| AI-02 | POST | `/internal/ai/ocr/extract` | 내부 | 어댑터 구현(`AiClient.extractText`, fake/HTTP multipart); TRN-05 연결·AI 서비스 통합 검증 미완료 |
+| AI-02 | POST | `/internal/ai/ocr/extract` | 내부 | FastAPI 구현(Tesseract `kor+eng`). Spring은 `AiClient.extractText`로 SOL-06에서만 호출([설계](../../../../../../docs/ai-02-ocr.md)) |
 | AI-03 | POST | `/internal/ai/scenarios/generate` | 내부 | fake/HTTP 클라이언트·응답 타입 검사·요청 ID·전용 타임아웃 구현. 실제 FastAPI·TRN-06 연결은 미완료 |
 | AI-04 | POST | `/internal/ai/simulation/reply` | 내부 | replySimulation fake/HTTP 클라이언트·엄격한 응답 검사 구현. 기존 훈련 서비스는 옛 메서드·경로 유지, 실제 FastAPI·서비스 전환 미완료 |
 | AI-05 | POST | `/internal/ai/training/evaluate` | 내부 | evaluateTraining fake/HTTP 클라이언트·엄격한 응답 검사·전용 타임아웃 구현. 실제 FastAPI·리포트 서비스 연결은 미완료 |
 | AI-06 | POST | `/internal/ai/solutions/extract` | 내부 | extractSolutionFacts fake/HTTP 클라이언트·엄격한 타입/미확정 집합 검사 구현. SOL-01·03 상담에 연결. 실제 FastAPI·운영 카드 콘텐츠는 미연결 |
 | AI-07 | POST | `/internal/ai/solutions/explain` | 내부 | explainSolution fake/HTTP 클라이언트·요청 코드 대조·명시적 출력 패턴 검사 구현. 실제 FastAPI/RAG·승인 확인·상담 연결은 미완료 |
+| 상담 assist(번호 미정) | POST | `/internal/ai/solutions/assist` | 내부 | planSolutionAssist/answerSolutionAssist fake/HTTP 클라이언트·상태별 필드·요청 대조·출력 패턴 검사 구현(계약 초안 v1). 상담 서비스·공개 API·DB·승인 카탈로그 연결은 미완료 |
 
 새 `replySimulation`은 목표 AI-04 경로를 호출해요. 현재 훈련 서비스는 이전 `suggestTrainingTurn`과 `/internal/training/turn`을 계속 사용해요. 실제 AI 서비스 통합과 시나리오 저장·이력 구성·서비스 전환은 후속 작업이에요. 새 DTO에 시나리오·최근 대화를 담을 수 있지만 기존 서비스가 자동으로 이 맥락을 전달하지는 않아요.
 
@@ -39,12 +40,12 @@ AI-01 개발 흐름과 요청·응답 초안은 [상황 파악 다음 질문 개
 
 자세한 흐름·FastAPI 제안 구조·남은 작업은 [AI-02 OCR 추출 개발·연결 설계](../../../../../../docs/ai-02-ocr.md)를 참고해요.
 
-훈련 이미지에서 문자를 읽고 민감정보를 검사해요. 외부 사용자가 직접 부르지 않고, 업로드를 받는 TRN-05가 검증을 마친 이미지만 넘겨요.
+사진에서 글자를 읽고 민감정보를 검사해요. 외부 사용자가 직접 부르지 않고, 피해 대응 사진 입력(SOL-06)이 검증을 마친 이미지만 넘겨요. 훈련 TRN-05는 제거했어요.
 
 - 요청: `multipart/form-data`, 파트 이름 `images`(여러 장)
 - 응답: `{"success":true,"data":{"recognizedText":"거래 관련 안내","usable":true}}`
 - `usable=false`는 민감정보가 걸렸다는 뜻이에요. 그 문자는 저장하거나 다음 AI 요청에 넣지 않아요.
-- `{"success":false,"error":{"code":"OCR_FAILED",...}}`는 예외가 아니라 `OcrExtractResult.failed()`로 돌려줘요. 화면은 "이미지를 읽지 못했어요"로 이어가요. 실패 본문 형식은 가정이라 AI repo와 확정해야 해요.
+- `{"success":false,"error":{"code":"OCR_FAILED",...}}`는 예외가 아니라 `OcrExtractResult.failed()`로 돌려줘요. SOL-06은 이를 `OCR_FAILED`(직접 입력 안내)로 바꿔요. FastAPI 구현과 같은 형식이에요.
 - 그 밖의 오류 코드, 타임아웃, JSON이 아닌 본문, `data` 없음은 `AiUnavailableException`이에요.
 - 원본 이미지는 호출 동안 메모리에만 두고 DB·디스크·로그에 남기지 않아요. `OcrImage`·`OcrExtractResult`의 `toString`은 바이트와 인식 문자를 출력하지 않아요.
 - `FakeAiClient`는 파일 이름에 `ocr-fail`이 있으면 실패 결과를 돌려줘요.
@@ -141,3 +142,14 @@ Spring 클라이언트는 SOL-01 시작과 SOL-03 메시지 서비스에 연결�
 
 - 필드 이름 표기(camelCase 또는 snake_case)를 AI repo와 맞춰요. 지금 dto는 camelCase예요.
 - 외부 LLM 공급자의 요청 한도에 걸렸을 때 재시도를 어느 쪽에서 할지
+
+## 상담 assist 내부 계약(초안 v1)과 후속 연결
+
+계약은 [상담 LangGraph 계획서](../../../../../../docs/solution-langgraph-integration-plan.md) 3.1장이 기준이에요. 이번에는 Spring 내부 클라이언트만 구현했어요.
+
+- `planSolutionAssist`: PLAN 요청은 phase·question·questionIntent·facts(네 키 모두)·askedFactKeys·remainingClarifications(0~3)를 보내요. 응답 data는 status·questionIntent·clarification·candidateReferences·reasonCode 다섯 키가 모두 있어야 해요(해당 없으면 null 또는 빈 배열).
+- `answerSolutionAssist`: ANSWER 요청은 승인 근거 1~10개(`VerifiedReference`)를 보내요. 응답 data는 status·answer·referenceCodes·reasonCode가 모두 있어야 해요.
+- `SolutionAssistValidator`: 추가 질문은 현재 UNKNOWN이면서 아직 묻지 않은 사실만 허용하고, 남은 횟수가 0이면 거부해요. 후속 실행에서 질문 의도가 바뀌면 거부해요. 답변 인용은 요청 근거의 부분집합이어야 하고, 답변·추가 질문 문장에 AI-07과 같은 금지 출력 검사를 적용해요.
+- `FakeAiClient`: 질문 문장으로 의도를 추측하지 않고 첫 실행은 GENERAL이에요. "[AI_FAIL]"은 실패, "[OUT_OF_SCOPE]"는 답변 불가를 돌려줘요. 그 외에는 묻지 않은 UNKNOWN 사실을 고정 순서로 묻고, 없으면 `FAKE_ASSIST_GUIDE` 근거 후보를 돌려줘요.
+- 타임아웃은 AI-06/07과 같은 기본 read timeout을 써요. 전용 타임아웃은 Python 응답 시간 측정 뒤 정해요.
+

@@ -13,7 +13,7 @@ import java.util.Map;
  */
 public record SolutionStateResponse(long solutionId, SolutionStatus status, int stateVersion,
         Map<String, String> facts, List<StartSolutionResponse.Card> responseCards,
-        StartSolutionResponse.Question nextQuestion, List<Message> messages) {
+        StartSolutionResponse.Question nextQuestion, List<Message> messages, SolutionAssistant assistant, java.time.Instant createdAt, java.time.Instant completedAt) {
 
     /** content는 저장된 safe_content 그대로예요. 원본 피해 설명은 저장하지 않으므로 복원하지 않아요. */
     public record Message(int sequenceNo, MessageSender sender, String inputKind, String content, String selectedCode) {

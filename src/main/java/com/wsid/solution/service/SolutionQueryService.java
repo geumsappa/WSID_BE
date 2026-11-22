@@ -59,8 +59,10 @@ public class SolutionQueryService {
                     .map(SolutionStateResponse.Message::from).toList();
             return new SolutionStateResponse(session.getId(), session.getStatus(), session.getStateVersion(),
                     session.readFacts().toKeyMap(), currentCards(session),
-                    session.getStatus() == SolutionStatus.COMPLETED ? null
-                            : StartSolutionResponse.Question.from(session.readNextQuestion()), history);
+                    session.getStatus() == SolutionStatus.COMPLETED || session.readPendingAssist() != null ? null
+                            : StartSolutionResponse.Question.from(session.readNextQuestion()), history,
+                    session.getStatus() != SolutionStatus.COMPLETED && session.readPendingAssist() != null
+                        ? com.wsid.solution.dto.SolutionAssistant.pending(session.readPendingAssist()) : null, session.getCreatedAt(), session.getCompletedAt());
         });
     }
 

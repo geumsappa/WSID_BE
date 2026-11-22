@@ -18,6 +18,7 @@ import java.time.Instant;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.Set;
 import java.util.function.Supplier;
 import org.hibernate.exception.ConstraintViolationException;
@@ -38,7 +39,25 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class SendSolutionMessageService {
     private static final Logger log = LoggerFactory.getLogger(SendSolutionMessageService.class);
+    /** SOL-06 사진 입력 때 OCR 전 확인용 고정 문구. 인식한 글자는 저장하지 않아요. */
+    static final String IMAGE_RECEIVED = "사진 속 내용을 제출했습니다.";
+
+    /**
+     * SOL-06 OCR 결과를 상담 입력으로 바꾼 값. 서버 안에서만 만들어지고 공개 JSON으로는 만들 수 없어요.
+     *
+     * @param content     AI-06 사실 추출에 보낼 글자(사진 종류 + 요약 + 인식 문자, 1000자 이내). 저장하지 않아요.
+     * @param userMessage 대화 기록에 남길 고정 문구. 예: "사진(송금 내역)을 제출했습니다."
+     */
+    public record RecognizedPhoto(String content, String userMessage) {
+        @Override
+        public String toString() {
+            return "RecognizedPhoto[contentLength=" + (content == null ? 0 : content.length()) + "]";
+        }
+    }
     private final AiClient ai;
+    private SolutionAssistService assist;
+    @Autowired(required = false)
+    public void setAssistService(SolutionAssistService assist) { this.assist = assist; }
     private final SensitiveDescriptionGuard guard;
     private final ResponseCardCatalog cards;
     private final SolutionSessionRepository sessions;
@@ -73,11 +92,38 @@ public class SendSolutionMessageService {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public SolutionMessageResponse send(long id, SendSolutionMessageRequest request,
             Supplier<Optional<SolutionOwner>> owner) {
+        if (request.purpose() != SendSolutionMessageRequest.Purpose.FACT_UPDATE) {
+            if (assist == null) throw new IllegalStateException("assist service is not configured");
+            return assist.send(id, request, owner);
+        }
+        return sendFactUpdate(id, request, existingOwner(owner), owner, StartSolutionService.DESCRIPTION_RECEIVED, true);
+    }
+
+    /**
+     * SOL-06. 소유권·중복·상태·버전을 먼저 확인한 뒤에만 OCR을 불러요. 읽은 글자는 AI-06 사실 추출 →
+     * 병합·카드 선택 흐름으로 이어가고, 원문은 저장하지 않아요. 사진은 계좌·전화번호가 찍히는 게 당연해서
+     * 민감정보 확인(SensitiveDescriptionGuard)을 건너뛰어요. 일반 채팅 입력(SOL-03)은 계속 검사해요.
+     *
+     * @param recognize 트랜잭션 밖에서 실행할 OCR. 사용할 수 없으면 ApiException을 던져요.
+     */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public SolutionMessageResponse sendRecognizedText(long id, UUID requestId, int stateVersion,
+            Supplier<RecognizedPhoto> recognize, Supplier<Optional<SolutionOwner>> owner) {
         SolutionOwner resolved = existingOwner(owner);
+        SendSolutionMessageRequest probe = SendSolutionMessageRequest.recognizedText(requestId, stateVersion, IMAGE_RECEIVED);
+        read.execute(tx -> snapshot(id, resolved, probe));
+        RecognizedPhoto photo = recognize.get();
+        SendSolutionMessageRequest request =
+                SendSolutionMessageRequest.recognizedText(requestId, stateVersion, photo.content());
+        return sendFactUpdate(id, request, resolved, owner, photo.userMessage(), false);
+    }
+
+    private SolutionMessageResponse sendFactUpdate(long id, SendSolutionMessageRequest request, SolutionOwner resolved,
+            Supplier<Optional<SolutionOwner>> owner, String userMessage, boolean checkSensitive) {
         Snapshot snapshot = read.execute(tx -> snapshot(id, resolved, request));
         SolutionFacts extracted = null;
         if (request.isText()) {
-            guard.check(request.content());
+            if (checkSensitive) guard.check(request.content());
             var aiRequest = new SolutionExtractRequest(request.content(), snapshot.facts().knownValues(), request.requestId());
             try {
                 extracted = SolutionFacts.fromStrings(ai.extractSolutionFacts(aiRequest).facts());
@@ -89,7 +135,7 @@ public class SendSolutionMessageService {
         if (!resolved.equals(existingOwner(owner))) throw new ApiException(ErrorCode.SOLUTION_NOT_FOUND);
         SolutionFacts result = extracted;
         try {
-            return write.execute(tx -> apply(id, resolved, request, result));
+            return write.execute(tx -> apply(id, resolved, request, result, userMessage));
         } catch (ConcurrentUpdate | OptimisticLockingFailureException | PessimisticLockingFailureException e) {
             throw classifyRace(id, resolved, request);
         } catch (DataIntegrityViolationException e) {
@@ -120,7 +166,7 @@ public class SendSolutionMessageService {
     }
 
     private SolutionMessageResponse apply(long id, SolutionOwner owner, SendSolutionMessageRequest request,
-            SolutionFacts extracted) {
+            SolutionFacts extracted, String userMessage) {
         Snapshot before = snapshot(id, owner, request);
         SolutionFacts updated;
         if (request.isText()) {
@@ -151,7 +197,7 @@ public class SendSolutionMessageService {
         int sequence = Math.addExact(messages.lastSequence(id), 1);
         messages.save(request.isText()
                 ? SolutionMessage.of(id, MessageSender.USER, InputKind.TEXT, sequence,
-                        StartSolutionService.DESCRIPTION_RECEIVED, request.requestId(), now)
+                        userMessage, request.requestId(), now)
                 : SolutionMessage.choice(id, sequence, request.fact(), request.selected(), request.requestId(), now));
         if (question != null && !Objects.equals(question, before.question())) {
             messages.save(SolutionMessage.of(id, MessageSender.SYSTEM, InputKind.TEXT, Math.addExact(sequence, 1),
