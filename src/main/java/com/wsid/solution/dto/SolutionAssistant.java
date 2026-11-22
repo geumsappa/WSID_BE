@@ -10,9 +10,15 @@ public record SolutionAssistant(SolutionAssistStatus status, String answer, List
         Question question, SolutionAssistReason reasonCode) {
     public SolutionAssistant { referenceCodes = List.copyOf(referenceCodes); }
     public record Question(UUID questionId, String factKey, String content, List<String> options) {}
+    /**
+     * 네 사실 질문은 서버 고정 문구를, 조건 질문(factKey=null)은 답할 때까지 보관한 검증된 AI 문장을 보여 줘요.
+     * 처음 응답과 다시 조회할 때 같은 문장이라 같은 questionId의 YES/NO 뜻이 바뀌지 않아요.
+     */
     public static SolutionAssistant pending(PendingAssist p) {
+        String content = p.asksCondition() ? p.conditionContent() : p.fact().question();
         return new SolutionAssistant(SolutionAssistStatus.NEED_USER_INPUT, null, List.of(),
-                new Question(p.questionId(), p.fact().key(), p.fact().question(), List.of("YES", "NO", "UNKNOWN")), null);
+                new Question(p.questionId(), p.asksCondition() ? null : p.fact().key(), content,
+                        List.of("YES", "NO", "UNKNOWN")), null);
     }
     public static SolutionAssistant unable(SolutionAssistReason reason) {
         String text = switch (reason) {

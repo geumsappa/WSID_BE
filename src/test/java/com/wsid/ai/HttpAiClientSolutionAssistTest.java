@@ -82,6 +82,42 @@ class HttpAiClientSolutionAssistTest {
     }
 
     @Test
+    void v12PlanSendsConfirmedConditionsAndParsesConditionClarification() {
+        String code = "REF_LAW_REFUND_PROCEDURE_V1_P2";
+        var asked = com.wsid.ai.dto.SolutionAssistCondition.of(code, "적용: 전화·문자로 속여 송금하게 한 경우");
+        var done = List.of(com.wsid.ai.dto.SolutionAssistConfirmedCondition.of(asked, "YES"));
+        var request = new SolutionAssistPlanRequest(null, SolutionAssistIntent.TRANSFER_RESPONSE, FACTS, List.of(), 2,
+                UUID.randomUUID(), null, null, done);
+        var next = com.wsid.ai.dto.SolutionAssistCondition.of(code, "제외: 물건·서비스를 주겠다며 속인 사기");
+        server.expect(content().json("""
+                {"confirmedConditions":[{"conditionId":"%s","referenceCode":"%s","quote":"적용: 전화·문자로 속여 송금하게 한 경우","answer":"YES"}]}"""
+                .formatted(asked.conditionId(), code), JsonCompareMode.LENIENT))
+                .andRespond(withSuccess("""
+                        {"success":true,"data":{"status":"NEED_USER_INPUT","questionIntent":"TRANSFER_RESPONSE",
+                        "clarification":{"kind":"CONDITION","factKey":null,"condition":{"conditionId":"%s",
+                        "referenceCode":"%s","quote":"제외: 물건·서비스를 주겠다며 속인 사기"},
+                        "content":"물건이나 서비스를 받기로 하고 보내신 돈인가요?","options":["YES","NO","UNKNOWN"]},
+                        "candidateReferences":[],"reasonCode":null}}""".formatted(next.conditionId(), code), MediaType.APPLICATION_JSON));
+        var result = client.planSolutionAssist(request);
+        assertTrue(result.clarification().isCondition());
+        assertNull(result.clarification().factKey());
+        assertEquals(next, result.clarification().condition());
+        server.verify();
+    }
+
+    @Test
+    void tamperedConditionIdIsRejected() {
+        var request = new SolutionAssistPlanRequest("질문", null, FACTS, List.of(), 3, UUID.randomUUID(), null, null, List.of());
+        server.expect(requestTo("http://ai.test/internal/ai/solutions/assist")).andRespond(withSuccess("""
+                {"success":true,"data":{"status":"NEED_USER_INPUT","questionIntent":"TRANSFER_RESPONSE",
+                "clarification":{"kind":"CONDITION","factKey":null,"condition":{"conditionId":"REF_X#000000000000",
+                "referenceCode":"REF_X","quote":"제외: 물건·서비스를 주겠다며 속인 사기"},
+                "content":"물건을 받기로 하고 보내신 돈인가요?","options":["YES","NO","UNKNOWN"]},
+                "candidateReferences":[],"reasonCode":null}}""", MediaType.APPLICATION_JSON));
+        assertThrows(AiUnavailableException.class, () -> client.planSolutionAssist(request));
+    }
+
+    @Test
     void followUpPlanSendsNullQuestionWithIntentAndAskedKeys() {
         var followUp = new SolutionAssistPlanRequest(null, SolutionAssistIntent.DEVICE_SAFETY,
                 Map.of("transferredMoney", "YES", "sharedInformation", "NO", "installedApp", "YES",

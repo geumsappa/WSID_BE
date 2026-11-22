@@ -41,4 +41,19 @@ public class ApprovedReferenceCatalog {
         }
         return List.copyOf(result);
     }
+
+    /**
+     * v1.2 조건 질문의 인용이 승인된 문단 원문에 글자 그대로 있는지 확인해요.
+     * Python과 같은 정규화(NFKC, 공백 묶기)로 비교해요. 코드만 맞고 인용이 다르면 거부해요.
+     */
+    public boolean containsQuote(String code, String quote) {
+        var entry = code == null ? null : entries.get(code);
+        if (entry == null || quote == null) return false;
+        String normalized = flat(quote);
+        return normalized.length() >= 8 && flat(entry.reference().excerpt()).contains(normalized);
+    }
+
+    private static String flat(String text) {
+        return java.text.Normalizer.normalize(text, java.text.Normalizer.Form.NFKC).replaceAll("(?U)\\s+", " ").strip();
+    }
 }

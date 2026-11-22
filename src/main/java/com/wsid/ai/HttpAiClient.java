@@ -10,6 +10,7 @@ import com.wsid.ai.dto.SimulationReplyResult;
 import com.wsid.ai.dto.SolutionAssistAnswerRequest;
 import com.wsid.ai.dto.SolutionAssistAnswerResult;
 import com.wsid.ai.dto.SolutionAssistClarification;
+import com.wsid.ai.dto.SolutionAssistCondition;
 import com.wsid.ai.dto.SolutionAssistIntent;
 import com.wsid.ai.dto.SolutionAssistPlanRequest;
 import com.wsid.ai.dto.SolutionAssistPlanResult;
@@ -218,7 +219,25 @@ public class HttpAiClient implements AiClient {
         if (value.isNull()) {
             return null;
         }
-        if (!value.isObject() || !required(value, "factKey").isString() || !required(value, "content").isString()) {
+        if (!value.isObject() || !required(value, "content").isString()) {
+            throw new IllegalArgumentException("clarification 형식이 올바르지 않아요.");
+        }
+        // v1.2: kind가 없으면 FACT(v1 모양). CONDITION은 factKey=null과 condition{conditionId, referenceCode, quote}.
+        JsonNode kind = value.get("kind");
+        if (kind != null && !kind.isNull() && "CONDITION".equals(kind.isString() ? kind.asString() : null)) {
+            JsonNode condition = required(value, "condition");
+            if (!required(value, "factKey").isNull() || !condition.isObject()
+                    || !required(condition, "conditionId").isString() || !required(condition, "referenceCode").isString()
+                    || !required(condition, "quote").isString()) {
+                throw new IllegalArgumentException("조건 질문 형식이 올바르지 않아요.");
+            }
+            return new SolutionAssistClarification(SolutionAssistClarification.Kind.CONDITION, null,
+                    new SolutionAssistCondition(condition.get("conditionId").asString(),
+                            condition.get("referenceCode").asString(), condition.get("quote").asString()),
+                    value.get("content").asString(), stringArray(required(value, "options")));
+        }
+        if ((kind != null && !kind.isNull() && !(kind.isString() && "FACT".equals(kind.asString())))
+                || !required(value, "factKey").isString()) {
             throw new IllegalArgumentException("clarification 형식이 올바르지 않아요.");
         }
         return new SolutionAssistClarification(value.get("factKey").asString(), value.get("content").asString(),

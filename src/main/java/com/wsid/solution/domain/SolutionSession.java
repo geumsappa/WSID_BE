@@ -76,8 +76,15 @@ public class SolutionSession {
         if (pendingAssistJson == null) return null;
         try {
             var node = JSON.readTree(pendingAssistJson);
-            if (!node.isObject() || node.size() != 5
-                    || !node.path("questionId").isString() || !node.path("fact").isString()
+            // 옛 행은 5필드(네 사실 질문), v1.2 행은 condition·conditionContent·confirmedConditions가 더해진 8필드예요.
+            boolean legacy = node.isObject() && node.size() == 5 && node.path("fact").isString();
+            boolean v12 = node.isObject() && node.size() == 8 && node.has("fact") && node.has("condition")
+                    && (node.path("conditionContent").isString() || node.path("conditionContent").isNull())
+                    && (node.path("fact").isString() || node.path("fact").isNull())
+                    && (node.path("condition").isObject() || node.path("condition").isNull())
+                    && node.path("confirmedConditions").isArray();
+            if (!(legacy || v12)
+                    || !node.path("questionId").isString()
                     || !node.path("questionIntent").isString() || !node.path("askedFactKeys").isArray()
                     || !node.path("remainingClarifications").isInt()) throw new IllegalArgumentException();
             String id = node.path("questionId").asString();
