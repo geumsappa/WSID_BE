@@ -215,9 +215,11 @@ public class TrainingWorkflow {
             var answer = TrainingMessage.fromAi(id, TrainingPhase.SIMULATION, sequence + 1, reply, now);
             answer.recordOptions(json.writeValueAsString(options));
             messages.save(answer);
-            if (result.nextScene() != null && locked.getScenarioJson() != null) {
+            if ((result.nextScene() != null || result.trainingState() != null) && locked.getScenarioJson() != null) {
                 ObjectNode progress = ((ObjectNode) scenarioJson(locked)).deepCopy();
-                progress.put("currentScene", result.nextScene());
+                if (result.nextScene() != null) progress.put("currentScene", result.nextScene());
+                // AI가 돌려준 훈련 상태(확정 설정·직전 수·장면별 횟수)를 다음 턴 시나리오와 함께 그대로 돌려줘요
+                if (result.trainingState() != null) progress.set("trainingState", result.trainingState());
                 locked.recordScenarioProgress(json.writeValueAsString(progress));
             }
             locked.recordSimulationTurn(revealKeyScene, finish, rules, now);
@@ -342,7 +344,15 @@ public class TrainingWorkflow {
         }
         return new Suggestion(safeGenerated(response.path("reply").asString(), 1000), List.copyOf(actions),
                 response.path("shouldFinish").asBoolean(), response.path("mockPage").isObject(), nextScene,
-                maskedInputOf(response.path("maskedInput")));
+                maskedInputOf(response.path("maskedInput")), trainingStateOf(response.path("trainingState")));
+    }
+
+    /** AI가 돌려준 훈련 상태. 객체가 아니거나 너무 크거나 개인정보처럼 보이는 값이 있으면 버려요 (다음 턴에 AI가 대화 기록으로 다시 짐작해요) */
+    static JsonNode trainingStateOf(JsonNode node) {
+        if (node == null || !node.isObject()) return null;
+        String text = node.toString();
+        if (text.length() > 4000 || GENERATED_SENSITIVE.matcher(text).find() || LIVE_LINK.matcher(text).find()) return null;
+        return node;
     }
 
     /** AI가 돌려준 가린 문장을 한 번 더 숫자 패턴으로 가려서 써요. 이상하면(비었거나 길거나 링크 포함) 쓰지 않아요 */
@@ -396,7 +406,8 @@ public class TrainingWorkflow {
         actions.add("RISKY_RESPONSE");
         actions.add("SENSITIVE_INFO_SHARED");
         actions.add(photo.code());
-        return new Suggestion(suggestion.reply(), List.copyOf(actions), suggestion.shouldFinish(), suggestion.showPage(), suggestion.nextScene());
+        return new Suggestion(suggestion.reply(), List.copyOf(actions), suggestion.shouldFinish(), suggestion.showPage(), suggestion.nextScene(),
+                suggestion.maskedInput(), suggestion.trainingState());
     }
 
     static ReportEvaluation photoFeedback(ReportEvaluation evaluation, List<String> events, boolean verified) {
@@ -416,13 +427,14 @@ public class TrainingWorkflow {
     }
 
     /** maskedInput: AI가 이름·주소 등을 가린 사용자 문장. 있으면 원문 대신 저장하고 화면에도 이 값을 보여 줘요 */
+    /** trainingState: AI가 다음 턴에 다시 받아야 하는 훈련 상태 (시나리오 진행 JSON에 currentScene과 함께 저장) */
     private record Suggestion(String reply, List<String> actions, boolean shouldFinish, boolean showPage, Integer nextScene,
-            String maskedInput) {
+            String maskedInput, JsonNode trainingState) {
         private Suggestion(String reply, List<String> actions, boolean shouldFinish, boolean showPage, Integer nextScene) {
-            this(reply, actions, shouldFinish, showPage, nextScene, null);
+            this(reply, actions, shouldFinish, showPage, nextScene, null, null);
         }
         private Suggestion(String reply, List<String> actions, boolean shouldFinish, boolean showPage) {
-            this(reply, actions, shouldFinish, showPage, null, null);
+            this(reply, actions, shouldFinish, showPage, null, null, null);
         }
     }
 
