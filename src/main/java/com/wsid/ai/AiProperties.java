@@ -14,10 +14,15 @@ public record AiProperties(
         Duration scenarioReadTimeout,
         Duration evaluationReadTimeout,
         Duration assistReadTimeout,
-        Duration ocrReadTimeout) {
+        Duration ocrReadTimeout,
+        Duration discoveryReadTimeout) {
 
     @ConstructorBinding
     public AiProperties {
+        if (discoveryReadTimeout == null) discoveryReadTimeout = readTimeout;
+        if (discoveryReadTimeout == null || discoveryReadTimeout.isZero() || discoveryReadTimeout.isNegative()) {
+            throw new IllegalArgumentException("상황 파악 응답 제한은 0보다 커야 해요.");
+        }
         if (scenarioReadTimeout == null) scenarioReadTimeout = readTimeout;
         if (scenarioReadTimeout == null || scenarioReadTimeout.isZero() || scenarioReadTimeout.isNegative()) {
             throw new IllegalArgumentException("시나리오 응답 제한은 0보다 커야 해요.");
@@ -35,6 +40,12 @@ public record AiProperties(
         if (ocrReadTimeout.isZero() || ocrReadTimeout.isNegative()) {
             throw new IllegalArgumentException("OCR 응답 제한은 0보다 커야 해요.");
         }
+    }
+
+    public AiProperties(String mode, String baseUrl, String apiKey, Duration connectTimeout, Duration readTimeout,
+            Duration scenarioReadTimeout, Duration evaluationReadTimeout, Duration assistReadTimeout, Duration ocrReadTimeout) {
+        this(mode, baseUrl, apiKey, connectTimeout, readTimeout, scenarioReadTimeout, evaluationReadTimeout,
+                assistReadTimeout, ocrReadTimeout, null);
     }
 
     public AiProperties(String mode, String baseUrl, String apiKey, Duration connectTimeout, Duration readTimeout,

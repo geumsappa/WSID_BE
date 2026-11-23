@@ -20,12 +20,14 @@ public class TrainingAiGateway {
     private final AiProperties properties;
     private final RestClient client;
     private final RestClient scenarioClient;
+    private final RestClient discoveryClient;
     private final RestClient evaluationClient;
 
     public TrainingAiGateway(AiProperties properties) {
         this.properties = properties;
         client = client(properties.readTimeout());
         scenarioClient = client(properties.scenarioReadTimeout());
+        discoveryClient = client(properties.discoveryReadTimeout());
         evaluationClient = client(properties.evaluationReadTimeout());
     }
 
@@ -44,7 +46,8 @@ public class TrainingAiGateway {
     public JsonNode request(String path, Object body) {
         try {
             RestClient selected = "/training/evaluate".equals(path) ? evaluationClient
-                    : "/scenarios/generate".equals(path) ? scenarioClient : client;
+                    : "/scenarios/generate".equals(path) ? scenarioClient
+                    : "/discovery/next".equals(path) ? discoveryClient : client;
             JsonNode response = selected.post().uri("/internal/ai" + path).body(body).retrieve().body(JsonNode.class);
             if (response == null || !response.path("success").asBoolean() || !response.path("data").isObject()) {
                 throw new ApiException(ErrorCode.AI_SERVICE_UNAVAILABLE);

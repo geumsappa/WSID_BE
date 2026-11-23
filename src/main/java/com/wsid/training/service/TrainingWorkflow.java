@@ -87,7 +87,9 @@ public class TrainingWorkflow {
             if (!facts.has("activity")) facts.put("activity", content);
             String activity = facts.path("activity").asString("");
             ready = count >= 3 && activity.length() >= 4 && !activity.contains("모르겠") && !activity.contains("없어요");
-            question = ready ? "답변을 바탕으로 가상 훈련을 만들 수 있어요."
+            question = ready ? ("BASIC".equals(facts.path("scenarioMode").asString())
+                    ? "사례 기반 기본 훈련을 준비할 수 있어요. 실제 경험과 구분된 가상 상황으로 진행합니다."
+                    : "답변을 바탕으로 가상 훈련을 만들 수 있어요.")
                     : count == 1 ? "그 일과 관련해 받은 안내나 연락이 있었나요?" : "그때 직접 하신 일을 조금 더 알려주시겠어요?";
         } else {
             var response = ai.request("/discovery/next", Map.of("conversation", discoveryHistory(id),
@@ -98,21 +100,28 @@ public class TrainingWorkflow {
             facts.setAll((ObjectNode) response.path("facts"));
             safeGenerated(facts.toString(), 16000);
             ready = response.path("canGenerateScenario").asBoolean();
-            question = ready ? "답변을 바탕으로 가상 훈련을 만들 수 있어요."
+            question = ready ? ("BASIC".equals(facts.path("scenarioMode").asString())
+                    ? "사례 기반 기본 훈련을 준비할 수 있어요. 실제 경험과 구분된 가상 상황으로 진행합니다."
+                    : "답변을 바탕으로 가상 훈련을 만들 수 있어요.")
                     : safeGenerated(response.path("nextQuestion").asString(), 1000);
         }
         String reply = question;
         boolean canGenerate = ready;
+        List<TrainingResponses.Option> discoveryOptions = !ready && facts.path("basicScenarioOffered").asBoolean()
+                ? List.of(new TrainingResponses.Option("DISCOVERY_MORE", "더 이야기하기"),
+                          new TrainingResponses.Option("DISCOVERY_BASIC", "기본 훈련 시작")) : List.of();
         facts.put("canGenerateScenario", ready);
         return write(id, owner, request, TrainingPhase.DISCOVERY, locked -> {
             Instant now = Instant.now();
             int sequence = nextSequence(id);
             messages.save(TrainingMessage.fromUser(id, TrainingPhase.DISCOVERY, sequence, content, null,
                     request.requestId(), now));
-            messages.save(TrainingMessage.fromAi(id, TrainingPhase.DISCOVERY, sequence + 1, reply, now));
+            var aiMessage = TrainingMessage.fromAi(id, TrainingPhase.DISCOVERY, sequence + 1, reply, now);
+            aiMessage.recordOptions(json.writeValueAsString(discoveryOptions));
+            messages.save(aiMessage);
             locked.recordDiscovery(json.writeValueAsString(facts), rules, now);
             sessions.flush();
-            return new TrainingResponses.Discovery(first(reply), count, canGenerate, locked.getStateVersion());
+            return new TrainingResponses.Discovery(new TrainingResponses.FirstMessage(MessageSender.AI, reply, discoveryOptions), count, canGenerate, locked.getStateVersion());
         });
     }
 

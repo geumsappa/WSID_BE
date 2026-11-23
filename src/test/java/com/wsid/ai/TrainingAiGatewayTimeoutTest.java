@@ -30,10 +30,12 @@ class TrainingAiGatewayTimeoutTest {
         server.start();
         try {
             var properties = new AiProperties("http", "http://127.0.0.1:" + server.getAddress().getPort(), "test-key",
-                    Duration.ofSeconds(1), Duration.ofMillis(100), Duration.ofSeconds(2), Duration.ofSeconds(2));
+                    Duration.ofSeconds(1), Duration.ofMillis(100), Duration.ofSeconds(2), Duration.ofSeconds(2),
+                    Duration.ofSeconds(2), Duration.ofSeconds(2), Duration.ofSeconds(2));
             var gateway = new TrainingAiGateway(properties);
             assertTrue(gateway.request("/training/evaluate", Map.of()).isObject());
-            assertThrows(ApiException.class, () -> gateway.request("/discovery/next", Map.of()));
+            assertTrue(gateway.request("/discovery/next", Map.of()).isObject());
+            assertThrows(ApiException.class, () -> gateway.request("/simulation/reply", Map.of()));
         } finally { server.stop(0); executor.close(); }
     }
 }

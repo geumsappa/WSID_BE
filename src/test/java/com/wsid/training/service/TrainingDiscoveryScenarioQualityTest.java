@@ -70,6 +70,28 @@ class TrainingDiscoveryScenarioQualityTest {
         verify(fixture.session, never()).prepareScenario(any(), any(), any(), any(), any());
     }
 
+    @Test void basicOfferChoicesAreReturnedAndPersistedForResume() {
+        var fixture = new Fixture();
+        when(fixture.ai.request(eq("/discovery/next"), any())).thenReturn(json.readTree(
+            "{\"facts\":{\"basicScenarioOffered\":true},\"nextQuestion\":\"기본 훈련을 진행하시겠어요?\",\"canGenerateScenario\":false}"));
+        var response = fixture.workflow.discover(1L, new TrainingRequests.Discovery(UUID.randomUUID(), 0, "없어"));
+        assertEquals(List.of("DISCOVERY_MORE", "DISCOVERY_BASIC"), response.reply().options().stream().map(o -> o.code()).toList());
+        var saved = org.mockito.ArgumentCaptor.forClass(TrainingMessage.class);
+        verify(fixture.messages, times(2)).save(saved.capture());
+        assertTrue(saved.getAllValues().get(1).getOptionsJson().contains("DISCOVERY_BASIC"));
+        assertFalse(response.canGenerateScenario());
+    }
+
+    @Test void basicChoiceIsDistinguishedFromPersonalizedReadiness() {
+        var fixture = new Fixture();
+        when(fixture.ai.request(eq("/discovery/next"), any())).thenReturn(json.readTree(
+            "{\"facts\":{\"scenarioMode\":\"BASIC\",\"basicScenarioOffered\":false},\"nextQuestion\":\"준비 완료\",\"canGenerateScenario\":true}"));
+        var response = fixture.workflow.discover(1L, new TrainingRequests.Discovery(UUID.randomUUID(), 0, "네"));
+        assertTrue(response.canGenerateScenario());
+        assertTrue(response.reply().content().contains("사례 기반 기본 훈련"));
+        assertTrue(response.reply().options().isEmpty());
+    }
+
     private class Fixture {
         final TrainingSession session = mock(TrainingSession.class);
         final TrainingAiGateway ai = mock(TrainingAiGateway.class);
