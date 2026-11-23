@@ -28,12 +28,13 @@ public final class TrainingResponses {
     }
     public record Detail(long trainingId, String phase, TrainingStatus status, int stateVersion, int turnCount,
             List<HistoryMessage> messages, JsonNode availableOptions, MockPage mockPage, ScenarioSummary scenario,
-            boolean canGenerateScenario, boolean shouldFinish, boolean mockPageSubmitted, boolean mockAppClicked) {
+            boolean canGenerateScenario, boolean shouldFinish, boolean mockPageSubmitted, boolean mockAppClicked,
+            boolean mockTransferDone) {
         public Detail(long trainingId, String phase, TrainingStatus status, int stateVersion, int turnCount,
                 List<HistoryMessage> messages, JsonNode availableOptions, MockPage mockPage, ScenarioSummary scenario,
                 boolean canGenerateScenario, boolean shouldFinish, boolean mockPageSubmitted) {
             this(trainingId, phase, status, stateVersion, turnCount, messages, availableOptions, mockPage, scenario,
-                    canGenerateScenario, shouldFinish, mockPageSubmitted, false);
+                    canGenerateScenario, shouldFinish, mockPageSubmitted, false, false);
         }
     }
     public record MockAttachment(String type, String title) {}
