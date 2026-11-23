@@ -75,9 +75,9 @@ wsid:
     base-url: ${AI_BASE_URL:http://localhost:8000}
     api-key: ${AI_API_KEY:local-dev-key}
     connect-timeout: 2s
-    read-timeout: 20s          # 훈련 턴 전체 25초(제안값) 안에 대체 문구로 넘어가도록
+    read-timeout: ${AI_READ_TIMEOUT:32s} # 훈련 턴. Claude 는 한 턴 15~25초라 여유를 둠 (AI LLM_TIMEOUT 28초 + 여유, 프론트 35초보다 짧게)
     discovery-read-timeout: ${AI_DISCOVERY_READ_TIMEOUT:120s} # AI-01 전체 110초에 여유를 둠
-    scenario-read-timeout: ${AI_SCENARIO_READ_TIMEOUT:120s} # AI-03만 별도 조정. 운영 값은 AI 서비스와 합의
+    scenario-read-timeout: ${AI_SCENARIO_READ_TIMEOUT:160s} # AI-03: AI 시나리오 전체 150초 + 여유 (Claude 는 단계 5번에 80~120초)
     evaluation-read-timeout: ${AI_EVALUATION_READ_TIMEOUT:40s} # AI-05 평가만 별도 조정
     assist-read-timeout: ${AI_ASSIST_READ_TIMEOUT:20s} # PLAN·ANSWER 각각 적용
     assist-total-timeout: ${AI_ASSIST_TOTAL_TIMEOUT:40s} # 상담 처리 예산(초과 시 저장 롤백)

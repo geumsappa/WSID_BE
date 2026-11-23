@@ -79,6 +79,13 @@ public class ReportService {
                 report.isSaved(), evaluation(report));
     }
 
+    /** 마이페이지에서 리포트 삭제. 본인 리포트만, 없거나 남의 리포트면 404 */
+    @Transactional
+    public void delete(long id) {
+        TrainingReport report = reports.lockOwned(id, currentUser.id()).orElseThrow(ReportService::notFound);
+        reports.delete(report);
+    }
+
     @Transactional
     public Saved save(long id) {
         long userId = currentUser.id();
