@@ -42,6 +42,13 @@ public class User {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    /** AI 처리(해외 전송) 안내에 동의한 문구 버전과 시각. 동의 전이면 null */
+    @Column(name = "ai_consent_version", length = 20)
+    private String aiConsentVersion;
+
+    @Column(name = "ai_consent_at")
+    private Instant aiConsentAt;
+
     protected User() {
         // JPA용
     }
@@ -77,6 +84,14 @@ public class User {
         this.updatedAt = now;
     }
 
+    /** 시뮬레이션 시작 전 AI 처리 안내에 동의해요. 같은 버전에 다시 동의하면 처음 동의 시각을 유지해요 */
+    public void agreeAiProcessing(String version, Instant now) {
+        if (version.equals(aiConsentVersion)) return;
+        this.aiConsentVersion = version;
+        this.aiConsentAt = now;
+        this.updatedAt = now;
+    }
+
     public boolean canLogin() {
         return status == UserStatus.ACTIVE;
     }
@@ -102,4 +117,8 @@ public class User {
     public Instant getEmailVerifiedAt() { return emailVerifiedAt; }
 
     public Instant getCreatedAt() { return createdAt; }
+
+    public String getAiConsentVersion() { return aiConsentVersion; }
+
+    public Instant getAiConsentAt() { return aiConsentAt; }
 }
