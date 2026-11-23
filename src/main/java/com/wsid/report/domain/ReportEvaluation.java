@@ -19,12 +19,22 @@ public record ReportEvaluation(String overallFeedback, List<String> strengths, L
         return new ReportEvaluation(overallFeedback, strengths, improvements, turnFeedback, mockPageEvaluation, recommendations, sourceCredits);
     }
 
-    /** clickedAppLink: 훈련 중 가상 앱 설치 링크([모의앱])를 눌렀는지. 예전 리포트에는 없어서 false로 읽혀요. */
+    /**
+     * clickedAppLink: 훈련 중 가상 앱 설치 링크([모의앱])를 눌렀는지.
+     * attemptedTransfer: 대화 속 훈련용 계좌([모의계좌])로 송금 버튼을 눌렀는지. 예전 리포트에는 없어서 false로 읽혀요.
+     */
     public record MockPageEvaluation(boolean openedPage, boolean attemptedMockLogin, boolean checkedOfficialChannel,
-            Boolean clickedAppLink) {
-        public MockPageEvaluation { clickedAppLink = Boolean.TRUE.equals(clickedAppLink); }
+            Boolean clickedAppLink, Boolean attemptedTransfer) {
+        public MockPageEvaluation {
+            clickedAppLink = Boolean.TRUE.equals(clickedAppLink);
+            attemptedTransfer = Boolean.TRUE.equals(attemptedTransfer);
+        }
         public MockPageEvaluation(boolean openedPage, boolean attemptedMockLogin, boolean checkedOfficialChannel) {
-            this(openedPage, attemptedMockLogin, checkedOfficialChannel, false);
+            this(openedPage, attemptedMockLogin, checkedOfficialChannel, false, false);
+        }
+        public MockPageEvaluation(boolean openedPage, boolean attemptedMockLogin, boolean checkedOfficialChannel,
+                Boolean clickedAppLink) {
+            this(openedPage, attemptedMockLogin, checkedOfficialChannel, clickedAppLink, false);
         }
     }
 }

@@ -45,9 +45,13 @@ public record TrainingEvaluateResult(
     /** boolean 누락·타입 오류는 HTTP의 JsonNode 단계에서 먼저 검사해요. */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record MockPageEvaluation(boolean openedPage, boolean attemptedMockLogin, boolean checkedOfficialChannel,
-            boolean clickedAppLink) {
+            boolean clickedAppLink, boolean attemptedTransfer) {
         public MockPageEvaluation(boolean openedPage, boolean attemptedMockLogin, boolean checkedOfficialChannel) {
-            this(openedPage, attemptedMockLogin, checkedOfficialChannel, false);
+            this(openedPage, attemptedMockLogin, checkedOfficialChannel, false, false);
+        }
+        public MockPageEvaluation(boolean openedPage, boolean attemptedMockLogin, boolean checkedOfficialChannel,
+                boolean clickedAppLink) {
+            this(openedPage, attemptedMockLogin, checkedOfficialChannel, clickedAppLink, false);
         }
     }
 
