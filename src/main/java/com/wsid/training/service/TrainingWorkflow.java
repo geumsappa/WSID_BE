@@ -553,7 +553,10 @@ public class TrainingWorkflow {
     }
 
     private static String actorLabel(String value) {
+        // 대화 화면의 보낸 사람 이름이라 "가상", "사칭", "~라고 주장하는 사람" 같은 설명 말은 빼요
         return value.replace("(가상)", "").replace("(사칭)", "").replace("사칭", "")
+                .replaceAll("(이)?라고\\s*(주장|자칭|소개)하는\\s*(사람|인물|자)?", "")
+                .replaceAll("가상의?\\s*", "")
                 .replaceAll("\\s+", " ").strip();
     }
 

@@ -66,7 +66,7 @@ public final class TrainingResponses {
     public record MockPage(String templateCode, String title, String institutionName, String screenCode,
             boolean isSimulation) {
         public static MockPage bankNotice() {
-            return new MockPage("BANK_NOTICE", "가상 금융 안내", "가상금융센터", "LOGIN_CHECK", true);
+            return new MockPage("BANK_NOTICE", "금융 안내", "금융안내센터", "LOGIN_CHECK", true);
         }
     }
     public record Action(boolean recorded, int stateVersion) {}
