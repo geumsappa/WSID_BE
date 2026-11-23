@@ -51,6 +51,7 @@ public class SolutionSecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/solutions/sessions/{id}/images").permitAll()   // SOL-06
                 .requestMatchers(HttpMethod.PATCH, "/api/solutions/sessions/{id}/facts").permitAll()    // SOL-04
                 .requestMatchers(HttpMethod.POST, "/api/solutions/sessions/{id}/complete").permitAll() // SOL-05
+                .requestMatchers(HttpMethod.DELETE, "/api/solutions/sessions/{id}").permitAll() // 상담 삭제 (소유권은 서비스에서 확인)
                 .anyRequest().denyAll());
         return http.build();
     }

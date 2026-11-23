@@ -72,6 +72,10 @@ public class SolutionController {
     private com.wsid.solution.service.SolutionReplyService replies;
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setReplyService(com.wsid.solution.service.SolutionReplyService replies) { this.replies = replies; }
+    /** 상담 삭제 ('저장 없이 나가기', 마이페이지 기록 삭제) */
+    private com.wsid.solution.service.DeleteSolutionService deleteService;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setDeleteService(com.wsid.solution.service.DeleteSolutionService deleteService) { this.deleteService = deleteService; }
 
     public SolutionController(StartSolutionService startService, SolutionQueryService queryService,
             SolutionOwnerResolver owners, SendSolutionMessageService messageService, UpdateSolutionFactsService factsService,
@@ -184,6 +188,16 @@ public class SolutionController {
             if (body == null || !body.isObject() || !body.isEmpty()) throw new ApiException(ErrorCode.INVALID_REQUEST);
         }
         return ApiResponse.ok(completeService.complete(solutionId, () -> owners.findExisting(authentication, request)));
+    }
+
+    /** 상담 삭제: 대화와 상담 기록을 모두 지워요. 본인 상담만, 없거나 남의 상담이면 404 */
+    @org.springframework.web.bind.annotation.DeleteMapping("/sessions/{id}")
+    public ApiResponse<java.util.Map<String, Object>> delete(@PathVariable("id") String id,
+            Authentication authentication, HttpServletRequest request) {
+        long solutionId = parseId(id);
+        if (deleteService == null) throw new ApiException(ErrorCode.SOLUTION_NOT_FOUND);
+        deleteService.delete(solutionId, () -> owners.findExisting(authentication, request));
+        return ApiResponse.ok(java.util.Map.of("solutionId", solutionId, "deleted", true));
     }
 
     private static byte[] limitedBody(HttpServletRequest request) {

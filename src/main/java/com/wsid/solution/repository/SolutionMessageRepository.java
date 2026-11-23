@@ -28,6 +28,11 @@ public interface SolutionMessageRepository extends JpaRepository<SolutionMessage
 
     long countBySolutionId(Long solutionId);
 
+    /** 상담 삭제(저장 없이 나가기·기록 삭제)할 때 대화를 먼저 지워요 */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("delete from SolutionMessage m where m.solutionId = :id")
+    int deleteAllOfSolution(@Param("id") long id);
+
     @Query("select coalesce(max(m.sequenceNo), 0) from SolutionMessage m where m.solutionId = :id")
     int lastSequence(@Param("id") long id);
 

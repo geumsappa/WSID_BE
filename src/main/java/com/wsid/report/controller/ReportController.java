@@ -33,6 +33,13 @@ public class ReportController {
         return Success.of(reports.save(id));
     }
 
+    /** 마이페이지에서 저장한 리포트 삭제 */
+    @org.springframework.web.bind.annotation.DeleteMapping("/api/reports/{id}")
+    public Success<java.util.Map<String, Object>> delete(@PathVariable long id) {
+        reports.delete(id);
+        return Success.of(java.util.Map.of("reportId", id, "deleted", true));
+    }
+
     @GetMapping("/api/reports")
     public Success<ReportService.SavedPage> saved(@RequestParam(defaultValue = "10") int size,
             @RequestParam(required = false) String cursor) {
