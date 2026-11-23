@@ -68,6 +68,10 @@ public class SolutionController {
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setImageService(SolutionImageService imageService) { this.imageService = imageService; }
+    /** AI-08 도우미 말. 없으면(테스트 등) 도우미 말 없이 응답하고 화면이 기본 문장을 써요 */
+    private com.wsid.solution.service.SolutionReplyService replies;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setReplyService(com.wsid.solution.service.SolutionReplyService replies) { this.replies = replies; }
 
     public SolutionController(StartSolutionService startService, SolutionQueryService queryService,
             SolutionOwnerResolver owners, SendSolutionMessageService messageService, UpdateSolutionFactsService factsService,
@@ -98,8 +102,9 @@ public class SolutionController {
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<StartSolutionResponse> start(@RequestBody(required = false) JsonNode body,
             Authentication authentication, HttpServletRequest request) {
-        return ApiResponse.ok(startService.start(StartSolutionRequest.from(body),
-                () -> owners.resolve(authentication, request)));
+        StartSolutionRequest input = StartSolutionRequest.from(body);
+        StartSolutionResponse started = startService.start(input, () -> owners.resolve(authentication, request));
+        return ApiResponse.ok(replies == null ? started : replies.withReply(started, input.description().orElse(null)));
     }
 
     /** SOL-02. id 형식이 틀려도(문자·0·음수·범위 초과) 같은 404로 응답해 존재 여부를 드러내지 않아요. */
@@ -117,7 +122,10 @@ public class SolutionController {
             Authentication authentication, HttpServletRequest request) throws HttpMediaTypeNotSupportedException {
         long solutionId = parseId(id);
         SendSolutionMessageRequest input = SendSolutionMessageRequest.from(strictBody(request));
-        return ApiResponse.ok(messageService.send(solutionId, input, () -> owners.findExisting(authentication, request)));
+        SolutionMessageResponse sent = messageService.send(solutionId, input, () -> owners.findExisting(authentication, request));
+        // 상황 설명(글)으로 사실이 다시 정리됐을 때만 도우미 말을 붙여요. 질문·선택지 답은 이미 AI 답변이 와요
+        boolean factText = input.isText() && input.purpose() == SendSolutionMessageRequest.Purpose.FACT_UPDATE;
+        return ApiResponse.ok(replies == null || !factText ? sent : replies.withReply(solutionId, sent, input.content(), "update"));
     }
 
     /**
@@ -160,7 +168,8 @@ public class SolutionController {
             Authentication authentication, HttpServletRequest request) throws HttpMediaTypeNotSupportedException {
         long solutionId = parseId(id);
         UpdateSolutionFactsRequest input = UpdateSolutionFactsRequest.from(strictBody(request));
-        return ApiResponse.ok(factsService.update(solutionId, input, () -> owners.findExisting(authentication, request)));
+        SolutionMessageResponse updated = factsService.update(solutionId, input, () -> owners.findExisting(authentication, request));
+        return ApiResponse.ok(replies == null ? updated : replies.withReply(solutionId, updated, null, "correct"));
     }
 
     /** SOL-05: 본문 없음 또는 빈 JSON 객체만 허용하고 최신 ACTIVE 상태를 종료해요. */
