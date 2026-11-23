@@ -52,6 +52,7 @@ public class SecurityConfig {
         var createTraining = PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/trainings");
         var trainingApi = PathPatternRequestMatcher.withDefaults().matcher("/api/trainings/{id}/**");
         var saveReport = PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/reports/{id}/save");
+        var aiConsent = PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/users/me/ai-consent");
         http
             .cors(cors -> cors.configurationSource(corsConfigurationSource))
             .securityContext(context -> context.securityContextRepository(securityContextRepository))
@@ -61,6 +62,7 @@ public class SecurityConfig {
                 return authentication != null && authentication.isAuthenticated()
                         && authentication.getPrincipal() instanceof Long
                         && (logout.matches(request) || saveReport.matches(request) || createTraining.matches(request)
+                            || aiConsent.matches(request)
                             || ((training.matches(request) || trainingApi.matches(request))
                                 && CsrfFilter.DEFAULT_CSRF_MATCHER.matches(request)));
             }))

@@ -44,4 +44,12 @@ public class LoginService {
                 .filter(User::canLogin)
                 .orElseThrow(() -> new ApiException(ErrorCode.LOGIN_REQUIRED));
     }
+
+    /** AI 처리(해외 전송) 안내 동의 기록. 같은 버전에 다시 동의하면 처음 시각을 유지해요 */
+    @org.springframework.transaction.annotation.Transactional
+    public User agreeAiProcessing(long userId, String version) {
+        User user = requireActiveUser(userId);
+        user.agreeAiProcessing(version, java.time.Instant.now());
+        return users.save(user);
+    }
 }
