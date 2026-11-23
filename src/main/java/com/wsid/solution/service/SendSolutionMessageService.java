@@ -64,6 +64,10 @@ public class SendSolutionMessageService {
     private SolutionAssistService assist;
     @Autowired(required = false)
     public void setAssistService(SolutionAssistService assist) { this.assist = assist; }
+    private SolutionFollowUpAdviceService followUp;
+    /** 있으면 선택지 답을 저장한 뒤 LLM이 그 답과 사진·앞 대화를 보고 할 일을 이어서 안내해요. */
+    @Autowired(required = false)
+    public void setFollowUp(SolutionFollowUpAdviceService followUp) { this.followUp = followUp; }
     private final SensitiveDescriptionGuard guard;
     private final ResponseCardCatalog cards;
     private final SolutionSessionRepository sessions;
@@ -103,8 +107,15 @@ public class SendSolutionMessageService {
             return assist.send(id, request, owner);
         }
         // 텍스트 입력은 원문을 대화 기록에 남겨요(민감정보 패턴은 sendFactUpdate에서 거부). 선택형은 choice()가 따로 남겨요.
-        return sendFactUpdate(id, request, existingOwner(owner), owner,
+        SolutionOwner resolved = existingOwner(owner);
+        SolutionMessageResponse saved = sendFactUpdate(id, request, resolved, owner,
                 request.isText() ? request.content().strip() : StartSolutionService.DESCRIPTION_RECEIVED, null, true);
+        if (request.isText() || followUp == null) return saved;
+        // 선택지 답은 이미 커밋됐어요. 고정 질문만 돌려주지 않고 LLM 안내를 덧붙이되, 실패하면 저장 결과만 돌려줘요.
+        var assistant = followUp.afterChoice(id, resolved, saved.stateVersion(), request.fact(), request.selected(),
+                request.requestId());
+        return assistant == null ? saved : new SolutionMessageResponse(saved.facts(), saved.responseCards(),
+                saved.nextQuestion(), saved.stateVersion(), assistant);
     }
 
     /**
