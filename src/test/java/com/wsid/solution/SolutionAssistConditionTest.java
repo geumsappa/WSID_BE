@@ -117,10 +117,13 @@ class SolutionAssistConditionTest {
         assertEquals(List.of(), plans.getAllValues().get(1).askedFactKeys());
         verify(ai).answer(argThat(r -> expected.equals(r.confirmedConditions())));
         var saved = ArgumentCaptor.forClass(SolutionMessage.class);
-        verify(messages, times(2)).save(saved.capture());
+        // 질문 행, 조건 답 행, AI 답변 행
+        verify(messages, times(3)).save(saved.capture());
         var answer = saved.getAllValues().get(1);
         assertNull(answer.getFactKey()); assertEquals("NO", answer.getSelectedCode());
-        assertFalse(answer.getSafeContent().contains(AI_QUESTION));
+        // 무엇을 물었고 어떻게 답했는지 새로고침 때 보이게 남겨요.
+        assertEquals(AI_QUESTION + " → 아니요", answer.getSafeContent());
+        assertEquals(com.wsid.common.domain.MessageSender.AI, saved.getAllValues().get(2).getSender());
         // 조건 근거 코드와 이 턴 답변이 인용한 코드가 함께 남아요(중복 제거).
         assertEquals("[\"" + CODE + "\"]", ReflectionTestUtils.getField(answer, "referenceCodesJson"));
     }

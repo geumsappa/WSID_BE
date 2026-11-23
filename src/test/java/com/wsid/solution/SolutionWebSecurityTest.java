@@ -397,7 +397,8 @@ class SolutionWebSecurityTest {
                 .andExpect(jsonPath("$.data.messages[0].sequenceNo").value(1))
                 .andExpect(jsonPath("$.data.messages[0].sender").value("USER"))
                 .andExpect(jsonPath("$.data.messages[0].inputKind").value("TEXT"))
-                .andExpect(jsonPath("$.data.messages[0].content").value("피해 설명을 제출했습니다."))
+                .andExpect(jsonPath("$.data.messages[0].content").value("모르는 사람에게 돈을 보냈어요."))
+                .andExpect(jsonPath("$.data.messages[0].referenceCodes").isEmpty())
                 .andExpect(jsonPath("$.data.messages[1].content").value("개인정보를 전달한 적이 있나요?"))
                 .andReturn().getResponse().getContentAsString();
         JsonNode before = json.readTree(created).path("data");
@@ -405,8 +406,10 @@ class SolutionWebSecurityTest {
         for (String field : List.of("solutionId", "status", "stateVersion", "facts", "responseCards", "nextQuestion")) {
             assertEquals(before.get(field), after.get(field), field + "는 SOL-01 응답과 같아야 해요.");
         }
-        assertFalse(restored.contains("모르는 사람") || restored.contains("anonymous") || restored.contains("userId")
-                || restored.contains("clientRequestId") || restored.contains("\"version\""));
+        // 설명은 대화 복원을 위해 messages에 보이고, 소유자·요청 ID·카드 버전·LLM 전용 문맥은 내보내지 않아요.
+        assertFalse(restored.contains("anonymous") || restored.contains("userId")
+                || restored.contains("clientRequestId") || restored.contains("\"version\"")
+                || restored.contains("assistContext"));
 
         var stranger = new MockHttpSession();
         csrf(stranger);

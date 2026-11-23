@@ -49,7 +49,9 @@ class SolutionAssistDatabaseTest {
         var restored=queries.get(id,()->Optional.of(owner));
         assertEquals(response.assistant(),restored.assistant());assertNull(restored.nextQuestion());
         assertEquals(2,sessions.findOwned(id,owner).orElseThrow().readPendingAssist().remainingClarifications());
-        assertEquals(0,jdbc.queryForObject("SELECT count(*) FROM solution_messages WHERE solution_id=? AND safe_content LIKE '%원문저장검증표식%'",Integer.class,id));
+        // 질문 원문은 질문 행 하나에만 남고(새로고침 복원), 확인 질문 대기 중이라 AI 행은 없어요.
+        assertEquals(1,jdbc.queryForObject("SELECT count(*) FROM solution_messages WHERE solution_id=? AND safe_content='원문저장검증표식' AND purpose='QUESTION'",Integer.class,id));
+        assertEquals(0,jdbc.queryForObject("SELECT count(*) FROM solution_messages WHERE solution_id=? AND sender='AI'",Integer.class,id));
         completes.complete(id,()->Optional.of(owner));
         var done=queries.get(id,()->Optional.of(owner));assertNull(done.assistant());assertNull(done.nextQuestion());
         assertNull(sessions.findOwned(id,owner).orElseThrow().readPendingAssist());

@@ -544,14 +544,17 @@ public class HttpAiClient implements AiClient {
         }
         JsonNode type = data.path("imageType");
         JsonNode summary = data.path("summary");
+        JsonNode masked = data.path("maskedText"); // 이 필드가 없던 FastAPI도 받아요
         if (!(type.isMissingNode() || type.isNull() || type.isString())
-                || !(summary.isMissingNode() || summary.isNull() || summary.isString())) {
+                || !(summary.isMissingNode() || summary.isNull() || summary.isString())
+                || !(masked.isMissingNode() || masked.isNull() || masked.isString())) {
             throw new AiUnavailableException("AI 서비스 OCR 분류 형식이 올바르지 않아요.");
         }
         return new OcrExtractResult(data.path("recognizedText").isNull() ? null : data.path("recognizedText").asString(),
                 data.path("usable").asBoolean(),
                 OcrImageType.from(type.isString() ? type.asString() : null),
-                summary.isString() ? summary.asString() : null);
+                summary.isString() ? summary.asString() : null,
+                masked.isString() ? masked.asString() : null);
     }
 
     /** reactive 의존성이 필요한 MultipartBodyBuilder 대신 파트마다 HttpEntity를 만들어요. */

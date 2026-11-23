@@ -61,16 +61,34 @@ class SolutionAssistServiceTest {
     SolutionAssistPlanResult evidence() {return new SolutionAssistPlanResult(SolutionAssistStatus.EVIDENCE_READY,
         SolutionAssistIntent.DEVICE_SAFETY,null,List.of(new SolutionCandidateReference("APP_GUIDE","1")),null);}
     void fails(ErrorCode c, Runnable r) {assertEquals(c,assertThrows(ApiException.class,r::run).errorCode());}
-    @Test void questionUsesAiOutsideTransactionAndStoresOnlyStructuredPending() {
+    @Test void questionUsesAiOutsideTransactionAndStoresQuestionTextWithoutAiRowWhilePending() {
         when(ai.plan(any())).thenAnswer(i->{assertFalse(txActive.get()); return clarification("installedApp");});
-        var response=send(question(0));
+        var request=question(0);
+        var response=send(request);
         assertEquals(1,response.stateVersion()); assertNull(response.nextQuestion());
         assertEquals(SolutionFact.INSTALLED_APP.question(),response.assistant().question().content());
         var pending=session.readPendingAssist();
         assertEquals(2,pending.remainingClarifications());assertEquals(List.of("installedApp"),pending.askedFactKeys());
         assertEquals(SolutionAssistIntent.DEVICE_SAFETY,pending.questionIntent());
+        // 질문 원문을 남기고(새로고침 복원), 확인 질문은 대기 상태로 복원되므로 AI 행을 만들지 않아요.
         var capture=org.mockito.ArgumentCaptor.forClass(SolutionMessage.class);verify(messages).save(capture.capture());
-        assertFalse(capture.getValue().getSafeContent().contains("앱 관련 질문"));
+        assertEquals(request.content().strip(),capture.getValue().getSafeContent());
+        assertEquals(com.wsid.common.domain.MessageSender.USER,capture.getValue().getSender());
+    }
+    @Test void answeredQuestionStoresUserQuestionThenAiReplyWithReferences() {
+        when(ai.plan(any())).thenReturn(evidence());
+        when(references.approved(any())).thenReturn(List.of(new VerifiedReference("APP_GUIDE","검토 제목","검토 문단")));
+        when(ai.answer(any())).thenReturn(new SolutionAssistAnswerResult(SolutionAssistStatus.ANSWERED,"안내입니다.",List.of("APP_GUIDE"),null));
+        var request=question(0);
+        send(request);
+        var capture=org.mockito.ArgumentCaptor.forClass(SolutionMessage.class);verify(messages,times(2)).save(capture.capture());
+        var user=capture.getAllValues().get(0); var reply=capture.getAllValues().get(1);
+        assertEquals(request.content().strip(),user.getSafeContent());
+        assertEquals(com.wsid.common.domain.MessageSender.AI,reply.getSender());
+        assertEquals("안내입니다.",reply.getSafeContent());
+        assertEquals(List.of("APP_GUIDE"),reply.getReferenceCodes());
+        assertEquals(user.getSequenceNo()+1,reply.getSequenceNo());
+        assertNull(reply.getClientRequestId());
     }
     @Test void choiceUpdatesFactAndCardsAndKeepsOriginalIntentWithoutOriginalText() {
         when(ai.plan(any())).thenReturn(clarification("installedApp"),evidence());

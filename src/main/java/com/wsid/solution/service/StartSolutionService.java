@@ -36,11 +36,12 @@ import org.springframework.transaction.support.TransactionTemplate;
 /**
  * SOL-01 상담 시작.
  * 입력·민감정보 확인 → 소유자 결정 → AI-06(트랜잭션 밖) → 사실·카드·질문 결정 → 짧은 저장 트랜잭션.
- * 피해 설명 원문은 AI 요청에만 쓰고 DB·세션·로그에 남기지 않아요. 예외로 목록 제목용 앞 40자만 title에 저장해요.
+ * 피해 설명은 대화 기록(safe_content)에 남겨 새로고침 때 보이고 이후 assist history로 써요.
+ * 민감정보 패턴은 저장 전에 SensitiveDescriptionGuard가 거부해요. 로그에는 남기지 않아요.
  */
 @Service
 public class StartSolutionService {
-    /** 접수 기록용 고정 문구. 원래 설명을 복원하는 용도가 아니에요. */
+    /** 예전 접수 기록용 고정 문구. 지금은 설명 원문을 저장하고, 옛 행을 알아보는 데만 써요. */
     static final String DESCRIPTION_RECEIVED = "피해 설명을 제출했습니다.";
     static final String CHOICE_START = "설명 없이 직접 선택으로 상담을 시작했습니다.";
 
@@ -102,7 +103,8 @@ public class StartSolutionService {
                     SolutionSession.start(resolvedOwner, facts, responseCards, question, title, extracted.fraudType(), now));
             long id = session.getId();
             messages.save(described
-                    ? SolutionMessage.of(id, MessageSender.USER, InputKind.TEXT, 1, DESCRIPTION_RECEIVED, requestId, now)
+                    ? SolutionMessage.of(id, MessageSender.USER, InputKind.TEXT, 1,
+                            request.description().orElseThrow().strip(), requestId, now)
                     : SolutionMessage.of(id, MessageSender.SYSTEM, InputKind.TEXT, 1, CHOICE_START, requestId, now));
             if (question != null) {
                 messages.save(SolutionMessage.of(id, MessageSender.SYSTEM, InputKind.TEXT, 2, question.content(), null, now));

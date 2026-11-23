@@ -32,20 +32,30 @@ public class SolutionAssistService {
     private final Duration budget;
     /** v1.2 조건 질문 사용 여부. 끄면 confirmedConditions를 보내지 않아 v1과 같아요(즉시 롤백용). */
     private final boolean conditionsEnabled;
+    /** 사진 내용을 assist history로 보낼지. 끄면 history=null로 v1.2 이전과 같아요(즉시 롤백용). */
+    private final boolean historyEnabled;
+    /** history 한 턴의 최대 길이(FastAPI 계약). */
+    static final int MAX_HISTORY_TURN = 2_000;
     public SolutionAssistService(SolutionAssistGateway ai, SensitiveDescriptionGuard guard, ApprovedReferenceCatalog references,
             ResponseCardCatalog cards, SolutionSessionRepository sessions, SolutionMessageRepository messages,
             PlatformTransactionManager manager, Duration budget) {
         this(ai, guard, references, cards, sessions, messages, manager, budget, false);
     }
+    public SolutionAssistService(SolutionAssistGateway ai, SensitiveDescriptionGuard guard, ApprovedReferenceCatalog references,
+            ResponseCardCatalog cards, SolutionSessionRepository sessions, SolutionMessageRepository messages,
+            PlatformTransactionManager manager, Duration budget, boolean conditionsEnabled) {
+        this(ai, guard, references, cards, sessions, messages, manager, budget, conditionsEnabled, true);
+    }
     @org.springframework.beans.factory.annotation.Autowired
     public SolutionAssistService(SolutionAssistGateway ai, SensitiveDescriptionGuard guard, ApprovedReferenceCatalog references,
             ResponseCardCatalog cards, SolutionSessionRepository sessions, SolutionMessageRepository messages,
             PlatformTransactionManager manager, @Value("${wsid.ai.assist-total-timeout:40s}") Duration budget,
-            @Value("${wsid.ai.assist-conditions-enabled:false}") boolean conditionsEnabled) {
+            @Value("${wsid.ai.assist-conditions-enabled:false}") boolean conditionsEnabled,
+            @Value("${wsid.ai.assist-history-enabled:true}") boolean historyEnabled) {
         if (budget == null || budget.isNegative() || budget.isZero()) throw new IllegalArgumentException("assist budget must be positive");
         this.ai=ai; this.guard=guard; this.references=references; this.cards=cards;
         this.sessions=sessions; this.messages=messages; this.manager=manager; this.budget=budget;
-        this.conditionsEnabled=conditionsEnabled;
+        this.conditionsEnabled=conditionsEnabled; this.historyEnabled=historyEnabled;
     }
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public SolutionMessageResponse send(long id, SendSolutionMessageRequest request, Supplier<Optional<SolutionOwner>> owner) {
@@ -53,6 +63,9 @@ public class SolutionAssistService {
         SolutionOwner resolved = owner.get().orElseThrow(() -> error(ErrorCode.SOLUTION_NOT_FOUND));
         Snapshot before = transaction(true, deadline).execute(tx -> snapshot(id, resolved, request));
         if (request.purpose() == SendSolutionMessageRequest.Purpose.QUESTION) guard.check(request.content());
+        // 소유권·상태·버전을 확인한 뒤에만 읽어요. AI 호출은 트랜잭션 밖이고, 저장 전 CAS 재검증은 그대로예요.
+        List<SolutionAssistHistoryTurn> history = historyEnabled
+                ? transaction(true, deadline).execute(tx -> conversationHistory(id)) : null;
         SolutionFacts facts = before.facts();
         PendingAssist previous = before.pending();
         boolean choice = request.purpose() == SendSolutionMessageRequest.Purpose.CLARIFICATION_ANSWER;
@@ -70,7 +83,7 @@ public class SolutionAssistService {
         try {
             // 플래그가 꺼져 있어도 이미 진행 중인 조건 질문 흐름은 끝까지 마쳐요.
             var sent = conditionsEnabled || !confirmed.isEmpty() ? List.copyOf(confirmed) : null;
-            result = within(deadline, () -> evaluate(request, updated, previous, sent, before.fraudType(), deadline));
+            result = within(deadline, () -> evaluate(request, updated, previous, sent, before.fraudType(), history, deadline));
         } catch (AiUnavailableException e) { throw error(ErrorCode.AI_SERVICE_UNAVAILABLE); }
         if (!owner.get().filter(resolved::equals).isPresent()) throw error(ErrorCode.SOLUTION_NOT_FOUND);
         try {
@@ -88,11 +101,18 @@ public class SolutionAssistService {
                 int sequence = Math.addExact(messages.lastSequence(id), 1);
                 messages.save(conditionAnswer
                         ? SolutionMessage.conditionAnswer(id, sequence, request.purpose().name(), request.questionId(),
-                                previous.condition().referenceCode(), request.selected(), request.requestId(),
-                                result.assistant().referenceCodes(), now)
+                                previous.condition().referenceCode(), previous.conditionContent(), request.selected(),
+                                request.requestId(), result.assistant().referenceCodes(), now)
                         : SolutionMessage.assist(id, sequence, request.purpose().name(), request.questionId(),
+                                choice ? null : request.content(),
                                 choice ? previous.fact() : null, choice ? request.selected() : null,
                                 request.requestId(), result.assistant().referenceCodes(), now));
+                // 답변·답변 불가 안내는 AI 행으로 남겨 새로고침(SOL-02) 때 보이고 다음 질문의 history가 돼요.
+                // 확인 질문(NEED_USER_INPUT)은 대기 상태로 복원되므로 행을 만들지 않아요.
+                String reply = result.assistant().answer();
+                if (result.pending() == null && reply != null && !reply.isBlank())
+                    messages.save(SolutionMessage.aiReply(id, Math.addExact(sequence, 1), reply,
+                            result.assistant().referenceCodes(), now));
                 messages.flush();
                 checkDeadline(deadline); // rollback if persistence consumed the remaining processing budget
                 return new SolutionMessageResponse(updated.toKeyMap(), selectedCards.stream().map(StartSolutionResponse.Card::from).toList(),
@@ -106,14 +126,19 @@ public class SolutionAssistService {
             throw classify(id, resolved, request);
         }
     }
+    /** 저장된 대화(설명·질문·답변·사진)로 만든 history. 규칙은 SolutionConversationHistory 참고. */
+    private List<SolutionAssistHistoryTurn> conversationHistory(long id) {
+        return SolutionConversationHistory.from(messages.findBySolutionIdOrderBySequenceNoAsc(id));
+    }
     private Result evaluate(SendSolutionMessageRequest input, SolutionFacts facts, PendingAssist previous,
-            List<SolutionAssistConfirmedCondition> confirmed, String fraudType, long deadline) {
+            List<SolutionAssistConfirmedCondition> confirmed, String fraudType, List<SolutionAssistHistoryTurn> history,
+            long deadline) {
         boolean first = input.purpose() == SendSolutionMessageRequest.Purpose.QUESTION;
         int remaining = first ? 3 : previous.remainingClarifications();
         // v1.2: 확정 조건 목록(첫 질문은 빈 목록)을 보내 근거 문단 기반 조건 질문을 켜요.
         var plan = ai.plan(new SolutionAssistPlanRequest(first ? input.content() : null,
                 first ? null : previous.questionIntent(), facts.toKeyMap(), first ? List.of() : previous.askedFactKeys(),
-                remaining, UUID.randomUUID(), fraudType, null, confirmed));
+                remaining, UUID.randomUUID(), fraudType, history, confirmed));
         if (plan.status() == SolutionAssistStatus.NEED_USER_INPUT) {
             var keys = new ArrayList<>(first ? List.<String>of() : previous.askedFactKeys());
             var clarification = plan.clarification();
@@ -136,7 +161,7 @@ public class SolutionAssistService {
         if (approved.isEmpty()) return unable(SolutionAssistReason.NO_EVIDENCE);
         checkDeadline(deadline);
         var answer = ai.answer(new SolutionAssistAnswerRequest(first ? input.content() : null, plan.questionIntent(),
-                facts.toKeyMap(), approved, UUID.randomUUID(), fraudType, null, confirmed));
+                facts.toKeyMap(), approved, UUID.randomUUID(), fraudType, history, confirmed));
         if (answer.status() == SolutionAssistStatus.UNABLE_TO_ANSWER) return unable(answer.reasonCode());
         return new Result(null, new SolutionAssistant(answer.status(), answer.answer(), answer.referenceCodes(), null, null));
     }

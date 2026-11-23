@@ -118,7 +118,8 @@ class SendSolutionMessageServiceTest {
         assertEquals("YES", response.facts().get("transferredMoney"));
         assertEquals(1, response.responseCards().size());
         assertEquals("sharedInformation", response.nextQuestion().factKey());
-        assertTrue(saved.stream().noneMatch(m -> m.getSafeContent().contains(request.content())));
+        // 텍스트 입력은 원문을 대화 기록에 남겨요(새로고침 복원·assist history용).
+        assertTrue(saved.stream().anyMatch(m -> m.getSafeContent().equals(request.content().strip())));
         var captured = ArgumentCaptor.forClass(com.wsid.ai.dto.SolutionExtractRequest.class);
         verify(ai).extractSolutionFacts(captured.capture());
         assertEquals(request.requestId(), captured.getValue().requestId());

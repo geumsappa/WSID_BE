@@ -123,13 +123,15 @@ class SolutionMessageDatabaseTest {
         send(id, text(UUID.randomUUID(), 1, "문자 링크도 눌렀어요"));
         assertEquals("SECONDHAND_TRADE", jdbc.queryForObject("SELECT fraud_type_code FROM solution_sessions WHERE id = ?", String.class, id));
     }
-    @Test void repeatedUnknownTextIncreasesVersionOnceWithoutRepeatingQuestionOrStoringRawText() {
+    @Test void repeatedUnknownTextIncreasesVersionOnceWithoutRepeatingQuestionAndKeepsEachInputOnce() {
         long id = start();
         String secret = "특정인 이름을 포함한 비공개 문장";
         send(id, text(UUID.randomUUID(), 0, secret));
         send(id, text(UUID.randomUUID(), 1, secret));
         assertEquals(2, version(id)); assertEquals(4, count(id));
-        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM solution_messages WHERE solution_id = ? AND safe_content LIKE ?", Integer.class, id, "%" + secret + "%"));
+        // 입력마다 원문 행 하나(새로고침 복원·assist history용). LLM 전용 칸(assist_context)에는 남지 않아요.
+        assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM solution_messages WHERE solution_id = ? AND safe_content = ?", Integer.class, id, secret));
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM solution_messages WHERE solution_id = ? AND assist_context IS NOT NULL", Integer.class, id));
         assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM solution_messages WHERE solution_id = ? AND safe_content = ?", Integer.class, id, SolutionFact.TRANSFERRED_MONEY.question()));
     }
 

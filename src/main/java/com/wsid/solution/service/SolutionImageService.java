@@ -134,7 +134,29 @@ public class SolutionImageService {
     }
 
     private static SendSolutionMessageService.RecognizedPhoto photo(OcrExtractResult result) {
-        return new SendSolutionMessageService.RecognizedPhoto(extractInput(result), userMessage(result.imageType()));
+        return new SendSolutionMessageService.RecognizedPhoto(extractInput(result), userMessage(result.imageType()),
+                assistContext(result));
+    }
+
+    /** 사진 턴 history에 넣는 가린 글자 최대 길이. 요약(300자)과 합쳐 history 한 턴(2000자) 안에 들어가요. */
+    static final int MAX_PHOTO_TEXT = 600;
+
+    /**
+     * 이후 상담 질문의 history로 보낼 사진 내용. FastAPI는 "[사진"으로 시작하는 USER 턴을 사진 자료로 다뤄요.
+     * 원문(recognizedText)은 쓰지 않고 FastAPI가 가린 maskedText만 써요. 요약과 가린 글자가 모두 없으면 null이에요.
+     */
+    static String assistContext(OcrExtractResult result) {
+        String summary = result.summary() == null ? null : result.summary().strip();
+        String masked = result.maskedText() == null ? null : result.maskedText().strip();
+        if (summary == null && masked == null) return null;
+        StringBuilder text = new StringBuilder("[사진 · ").append(result.imageType().label()).append("]");
+        if (summary != null) text.append(" 요약: ").append(summary);
+        if (masked != null) {
+            int end = Math.min(masked.length(), MAX_PHOTO_TEXT);
+            if (end < masked.length() && Character.isHighSurrogate(masked.charAt(end - 1))) end--;
+            text.append("\n사진 속 글자: ").append(masked, 0, end);
+        }
+        return text.toString();
     }
 
     /** AI-06에 보낼 글자. 종류 + 요약 + 인식 문자를 합치고, 공개 입력과 같은 1000자 제한에 맞춰 뒤를 잘라요. */

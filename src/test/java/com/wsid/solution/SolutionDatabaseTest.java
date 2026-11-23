@@ -107,14 +107,15 @@ class SolutionDatabaseTest {
                 + "FROM solution_messages WHERE solution_id = ? ORDER BY sequence_no", response.solutionId());
         assertEquals(2, stored.size());
         assertEquals("USER", stored.get(0).get("sender"));
-        assertEquals("피해 설명을 제출했습니다.", stored.get(0).get("safe_content"));
+        assertEquals(SECRET, stored.get(0).get("safe_content")); // 새로고침 복원·assist history용 설명 원문
         assertNotNull(stored.get(0).get("client_request_id"));
         assertEquals("SYSTEM", stored.get(1).get("sender"));
         assertNull(stored.get(1).get("client_request_id"));
-        // 목록 제목(title)에만 설명 앞 40자가 남고, 다른 컬럼·메시지에는 원문이 없어요.
+        // 설명 원문은 목록 제목(title)과 설명 메시지의 safe_content에만 남고, 다른 컬럼에는 없어요.
         assertEquals(SECRET, jdbc.queryForObject("SELECT title FROM solution_sessions WHERE id = ?", String.class, response.solutionId()));
         Integer leaked = jdbc.queryForObject("SELECT count(*) FROM solution_sessions s LEFT JOIN solution_messages m "
-                + "ON m.solution_id = s.id WHERE s.id = ? AND ((to_jsonb(s) - 'title')::text LIKE '%비공개문장%' OR m::text LIKE '%비공개문장%')",
+                + "ON m.solution_id = s.id WHERE s.id = ? AND ((to_jsonb(s) - 'title')::text LIKE '%비공개문장%' "
+                + "OR (to_jsonb(m) - 'safe_content')::text LIKE '%비공개문장%')",
                 Integer.class, response.solutionId());
         assertEquals(0, leaked);
     }

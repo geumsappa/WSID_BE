@@ -47,11 +47,17 @@ public class SendSolutionMessageService {
      *
      * @param content     AI-06 사실 추출에 보낼 글자(사진 종류 + 요약 + 인식 문자, 1000자 이내). 저장하지 않아요.
      * @param userMessage 대화 기록에 남길 고정 문구. 예: "사진(송금 내역)을 제출했습니다."
+     * @param assistContext 이후 상담 질문의 history로 보낼 사진 내용(요약 + 가린 글자). 없으면 null이고 그때는 기존처럼 저장해요.
      */
-    public record RecognizedPhoto(String content, String userMessage) {
+    public record RecognizedPhoto(String content, String userMessage, String assistContext) {
+        public RecognizedPhoto(String content, String userMessage) {
+            this(content, userMessage, null);
+        }
+
         @Override
         public String toString() {
-            return "RecognizedPhoto[contentLength=" + (content == null ? 0 : content.length()) + "]";
+            return "RecognizedPhoto[contentLength=" + (content == null ? 0 : content.length())
+                    + ", assistContextLength=" + (assistContext == null ? 0 : assistContext.length()) + "]";
         }
     }
     private final AiClient ai;
@@ -96,7 +102,9 @@ public class SendSolutionMessageService {
             if (assist == null) throw new IllegalStateException("assist service is not configured");
             return assist.send(id, request, owner);
         }
-        return sendFactUpdate(id, request, existingOwner(owner), owner, StartSolutionService.DESCRIPTION_RECEIVED, true);
+        // 텍스트 입력은 원문을 대화 기록에 남겨요(민감정보 패턴은 sendFactUpdate에서 거부). 선택형은 choice()가 따로 남겨요.
+        return sendFactUpdate(id, request, existingOwner(owner), owner,
+                request.isText() ? request.content().strip() : StartSolutionService.DESCRIPTION_RECEIVED, null, true);
     }
 
     /**
@@ -115,11 +123,12 @@ public class SendSolutionMessageService {
         RecognizedPhoto photo = recognize.get();
         SendSolutionMessageRequest request =
                 SendSolutionMessageRequest.recognizedText(requestId, stateVersion, photo.content());
-        return sendFactUpdate(id, request, resolved, owner, photo.userMessage(), false);
+        return sendFactUpdate(id, request, resolved, owner, photo.userMessage(), photo.assistContext(), false);
     }
 
+    /** @param assistContext 사진 메시지면 history용 사진 내용, 아니면 null. */
     private SolutionMessageResponse sendFactUpdate(long id, SendSolutionMessageRequest request, SolutionOwner resolved,
-            Supplier<Optional<SolutionOwner>> owner, String userMessage, boolean checkSensitive) {
+            Supplier<Optional<SolutionOwner>> owner, String userMessage, String assistContext, boolean checkSensitive) {
         Snapshot snapshot = read.execute(tx -> snapshot(id, resolved, request));
         SolutionFacts extracted = null;
         String fraudType = null;
@@ -139,7 +148,7 @@ public class SendSolutionMessageService {
         SolutionFacts result = extracted;
         String suggestedType = fraudType;
         try {
-            return write.execute(tx -> apply(id, resolved, request, result, suggestedType, userMessage));
+            return write.execute(tx -> apply(id, resolved, request, result, suggestedType, userMessage, assistContext));
         } catch (ConcurrentUpdate | OptimisticLockingFailureException | PessimisticLockingFailureException e) {
             throw classifyRace(id, resolved, request);
         } catch (DataIntegrityViolationException e) {
@@ -170,7 +179,7 @@ public class SendSolutionMessageService {
     }
 
     private SolutionMessageResponse apply(long id, SolutionOwner owner, SendSolutionMessageRequest request,
-            SolutionFacts extracted, String fraudType, String userMessage) {
+            SolutionFacts extracted, String fraudType, String userMessage, String assistContext) {
         Snapshot before = snapshot(id, owner, request);
         SolutionFacts updated;
         if (request.isText()) {
@@ -199,10 +208,12 @@ public class SendSolutionMessageService {
         if (sessions.compareAndSet(id, owner, request.stateVersion(),
                 SolutionSession.prepareUpdate(updated, selectedCards, question, fraudType, now)) != 1) throw new ConcurrentUpdate();
         int sequence = Math.addExact(messages.lastSequence(id), 1);
-        messages.save(request.isText()
-                ? SolutionMessage.of(id, MessageSender.USER, InputKind.TEXT, sequence,
-                        userMessage, request.requestId(), now)
-                : SolutionMessage.choice(id, sequence, request.fact(), request.selected(), request.requestId(), now));
+        messages.save(!request.isText()
+                ? SolutionMessage.choice(id, sequence, request.fact(), request.selected(), request.requestId(), now)
+                : assistContext != null
+                        ? SolutionMessage.photo(id, sequence, userMessage, assistContext, request.requestId(), now)
+                        : SolutionMessage.of(id, MessageSender.USER, InputKind.TEXT, sequence,
+                                userMessage, request.requestId(), now));
         if (question != null && !Objects.equals(question, before.question())) {
             messages.save(SolutionMessage.of(id, MessageSender.SYSTEM, InputKind.TEXT, Math.addExact(sequence, 1),
                     question.content(), null, now));
