@@ -528,8 +528,12 @@ public class TrainingWorkflow {
         String organization = actorLabel(persona.path("organization").asString(""));
         // "개인", "개인 구매자"처럼 기관이 아니라 개인이면 기관 이름으로 쓰지 않아요
         if (List.of("없음", "해당 없음").contains(organization) || organization.startsWith("개인")) organization = "";
+        // "중고거래 앱의 거래 상대"처럼 기관 이름이 아니라 설명인 경우도 기관으로 쓰지 않아요
+        if (descriptive(organization)) organization = "";
         String role = actorLabel(persona.path("role").asString(""));
         String name = actorLabel(persona.path("name").asString(""));
+        // "물건을 사려는 사람"처럼 설명형 역할은 이름이 있으면 이름으로, 없으면 짧은 호칭으로 바꿔요
+        if (descriptive(role)) role = !name.isBlank() ? "" : shortRole(role);
         // 기관 이름과 역할이 겹치면 한 번만 써요 (예: "한결배송 배송팀" + "배송팀" → "한결배송 배송팀")
         String sender = !organization.isBlank()
                 ? (role.contains(organization) ? role
@@ -550,6 +554,19 @@ public class TrainingWorkflow {
         if (channel.contains("SNS")) return "SNS";
         if (channel.contains("메신저")) return "MESSENGER";
         return null;
+    }
+
+    /** 사람·관계를 풀어 쓴 설명인지 (보낸 사람 이름으로 쓰기엔 어색한 말) */
+    static boolean descriptive(String value) {
+        return value.contains("사람") || value.contains("려는") || value.contains("하는 ") || value.contains("의 ")
+                || value.contains("상대") || value.length() > 15;
+    }
+
+    static String shortRole(String role) {
+        if (role.contains("사려") || role.contains("구매")) return "구매자";
+        if (role.contains("팔려") || role.contains("판매")) return "판매자";
+        if (role.contains("택배") || role.contains("배송")) return "배송 담당자";
+        return "상대방";
     }
 
     private static String actorLabel(String value) {
