@@ -139,7 +139,8 @@ class SolutionMessageHttpIntegrationTest {
         assertEquals(2, body.size()); assertEquals(secret, body.path("description").asString());
         assertEquals(json.readTree("{\"transferredMoney\":\"NO\"}"), body.path("knownFacts"));
         assertFalse(body.has("requestId"));
-        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM solution_messages WHERE solution_id = ? AND safe_content LIKE ?", Integer.class, id, "%" + secret + "%"));
+        // 텍스트 입력은 원문 행 하나로 남아요(새로고침 복원·assist history용).
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM solution_messages WHERE solution_id = ? AND safe_content = ?", Integer.class, id, secret));
     }
 
     @ParameterizedTest @ValueSource(strings = {"503", "malformed", "stringSuccess", "timeout"})

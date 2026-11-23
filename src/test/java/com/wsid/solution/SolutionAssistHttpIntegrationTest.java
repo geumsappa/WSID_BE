@@ -151,8 +151,13 @@ class SolutionAssistHttpIntegrationTest {
         assertEquals(3,CALLS.get());assertEquals("assist-test-key",KEY.get());UUID.fromString(REQUEST_ID.get());
         var answer=json.readTree(BODY.get());assertEquals("ANSWER",answer.path("phase").asString());assertTrue(answer.path("question").isNull());
         assertEquals("TEST_GUIDE",answer.path("verifiedReferences").get(0).path("code").asString());
+        // 확인 질문 뒤 후속 ANSWER는 question=null이지만, 저장된 원래 질문이 history로 함께 가요.
+        assertEquals("USER",answer.path("history").get(0).path("role").asString());
+        assertEquals("앱 관련 비공개 질문",answer.path("history").get(0).path("content").asString());
         assertEquals(409,post(path(id),choice).statusCode());
-        assertEquals(0,jdbc.queryForObject("SELECT count(*) FROM solution_messages WHERE solution_id=? AND safe_content LIKE '%비공개 질문%'",Integer.class,id));
+        // 질문 원문 행 하나와 AI 답변 행 하나가 남아 새로고침 때 복원돼요.
+        assertEquals(1,jdbc.queryForObject("SELECT count(*) FROM solution_messages WHERE solution_id=? AND safe_content='앱 관련 비공개 질문'",Integer.class,id));
+        assertEquals(1,jdbc.queryForObject("SELECT count(*) FROM solution_messages WHERE solution_id=? AND sender='AI' AND purpose='ANSWER'",Integer.class,id));
     }
     private String SolutionFactQuestion() {return com.wsid.solution.domain.SolutionFact.INSTALLED_APP.question();}
     @ParameterizedTest @ValueSource(strings={"503","timeout"})

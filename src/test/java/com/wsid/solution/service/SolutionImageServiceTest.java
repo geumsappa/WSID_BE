@@ -55,6 +55,20 @@ class SolutionImageServiceTest {
         assertEquals(code, assertThrows(ApiException.class, run::run).errorCode());
     }
 
+    @Test void photoAssistContextUsesSummaryAndMaskedTextButNeverRawText() {
+        var result = new OcrExtractResult("원문 010-1234-5678", true, OcrImageType.MESSENGER_CHAT,
+                "상대가 계좌를 보냈어요.", "가".repeat(700));
+        String text = SolutionImageService.assistContext(result);
+        assertTrue(text.startsWith("[사진 · " + OcrImageType.MESSENGER_CHAT.label() + "] 요약: 상대가 계좌를 보냈어요."));
+        assertTrue(text.contains("\n사진 속 글자: " + "가".repeat(SolutionImageService.MAX_PHOTO_TEXT)));
+        assertFalse(text.contains("가".repeat(SolutionImageService.MAX_PHOTO_TEXT + 1)));
+        assertFalse(text.contains("010-1234"));
+        // 이전 FastAPI처럼 maskedText가 없으면 요약만, 요약도 없으면 사진 문맥을 남기지 않아요
+        assertEquals("[사진 · " + OcrImageType.SMS.label() + "] 요약: 문자 요약",
+                SolutionImageService.assistContext(new OcrExtractResult("원문", true, OcrImageType.SMS, "문자 요약")));
+        assertNull(SolutionImageService.assistContext(new OcrExtractResult("원문", true)));
+    }
+
     @Test void acceptsPngAndJpegBySignatureAndHidesOriginalFileName() {
         List<OcrImage> images = SolutionImageService.validate(List.of(
                 file("내 카톡 캡처.png", "image/png", PNG), file("문자.jpeg", "application/octet-stream", JPEG)));

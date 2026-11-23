@@ -15,11 +15,16 @@ public record SolutionStateResponse(long solutionId, SolutionStatus status, int 
         Map<String, String> facts, List<StartSolutionResponse.Card> responseCards,
         StartSolutionResponse.Question nextQuestion, List<Message> messages, SolutionAssistant assistant, java.time.Instant createdAt, java.time.Instant completedAt) {
 
-    /** content는 저장된 safe_content 그대로예요. 원본 피해 설명은 저장하지 않으므로 복원하지 않아요. */
-    public record Message(int sequenceNo, MessageSender sender, String inputKind, String content, String selectedCode) {
+    /**
+     * content는 저장된 safe_content 그대로예요(설명·질문·AI 답변 원문, 한글 선택값). assist_context(사진 속 글자)는 내보내지 않아요.
+     * referenceCodes는 AI 답변 행이 인용한 근거 코드이고, 다른 행은 빈 목록이에요.
+     */
+    public record Message(int sequenceNo, MessageSender sender, String inputKind, String content, String selectedCode,
+            List<String> referenceCodes) {
         public static Message from(SolutionMessage message) {
             return new Message(message.getSequenceNo(), message.getSender(), publicKind(message.getInputKind()),
-                    message.getSafeContent(), message.getSelectedCode());
+                    message.getSafeContent(), message.getSelectedCode(),
+                    message.getSender() == MessageSender.AI ? message.getReferenceCodes() : List.of());
         }
 
         /** DB의 OPTION은 공개 값 CHOICE로 바꿔요. 상담에서 쓰지 않는 ACTION은 저장 오류로 봐요. */

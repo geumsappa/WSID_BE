@@ -153,8 +153,22 @@ class HttpAiClientOcrTest {
     }
 
     @Test
+    void maskedText를_받고_없으면_null로_받는다() {
+        respond(200, """
+                {"success":true,"data":{"recognizedText":"010-1234-5678 송금","usable":false,
+                "imageType":"SMS","summary":"요약","maskedText":"[전화번호] 송금"}}""");
+        var result = client.extractText(List.of(new OcrImage("a.png", "image/png", new byte[] {1})));
+        assertThat(result.maskedText()).isEqualTo("[전화번호] 송금");
+        assertThat(result.toString()).doesNotContain("[전화번호]");
+
+        respond(200, "{\"success\":true,\"data\":{\"recognizedText\":\"안내\",\"usable\":true}}");
+        assertThat(client.extractText(List.of(new OcrImage("a.png", "image/png", new byte[] {1}))).maskedText()).isNull();
+    }
+
+    @Test
     void 분류_필드_타입이나_필수_필드가_틀리면_AI_사용불가로_바꾼다() {
         for (String body : List.of(
+                "{\"success\":true,\"data\":{\"recognizedText\":\"안내\",\"usable\":true,\"maskedText\":1}}",
                 "{\"success\":true,\"data\":{\"recognizedText\":\"안내\",\"usable\":true,\"imageType\":1}}",
                 "{\"success\":true,\"data\":{\"recognizedText\":\"안내\",\"usable\":true,\"summary\":[]}}",
                 "{\"success\":true,\"data\":{\"recognizedText\":1,\"usable\":true}}",

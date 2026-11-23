@@ -39,7 +39,8 @@
 | [상담 assist Spring 시간 제한 보고서](solution-assist-spring-timeout-report.md) | assist 전용 read timeout과 로컬 FastAPI 계약 테스트 결과 확인 |
 | [SOL-03 자유 질문 확장 및 FastAPI 연결 수정 계획서](solution-assist-question-plan.md) | messages의 purpose 확장·OHC app.main 연결·PLAN/ANSWER 예시·대기 상태/CAS·HTTP 모드 선택·변경 파일과 테스트 확인 |
 | [상담 assist Spring 시간 제한 수정 보고서](solution-assist-spring-timeout-report.md) | 내부 클라이언트 시간 설정·Python과의 관계·테스트 및 미구현 상담 연결 범위 확인 |
-| [상담 assist 대화 history 전달 설계 (초안)](solution-assist-history-plan.md) | safe_content로 history를 만들 수 없는 이유·Redis 보관안·originalQuestion 제안·미결정 사항 확인 |
+| [상담 assist 대화 history 전달 설계 (초안, 대체됨)](solution-assist-history-plan.md) | safe_content로 history를 만들 수 없는 이유·Redis 보관안·originalQuestion 제안 (검토 기록) |
+| [상담 대화 저장·복원과 LLM 문맥 연결 구현 계획](solution-conversation-context-plan.md) | 새로고침 복원·사진 내용 기반 후속 답변·assist history를 DB 저장으로 함께 해결하는 저장 규칙·변경 파일·완료 기준 확인 |
 
 AI-01을 개발하거나 다른 팀의 FastAPI·DB와 연결할 때는 연결 설계를 먼저 읽고, 필드·규칙은 개발·검증 안내와 API 기준을 함께 확인해요. 현재 FastAPI 저장소는 이 프로젝트에 없으므로 연결 설계의 Python 파일 구조는 역할을 설명하기 위한 제안이에요.
 

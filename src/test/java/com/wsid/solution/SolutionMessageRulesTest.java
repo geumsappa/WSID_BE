@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import com.wsid.common.domain.InputKind;
 import com.wsid.solution.domain.*;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -46,6 +47,19 @@ class SolutionMessageRulesTest {
         assertEquals("installedApp", msg.getFactKey());
         assertEquals("UNKNOWN", msg.getSelectedCode());
         assertEquals(id, msg.getClientRequestId());
-        assertTrue(msg.getSafeContent().contains("UNKNOWN"));
+        // 화면에는 한글 표시, selected_code에는 코드값
+        assertEquals(SolutionFact.INSTALLED_APP.question() + " 선택: 모르겠어요", msg.getSafeContent());
+        var correction = SolutionMessage.correction(301L, 4, SolutionFact.TRANSFERRED_MONEY, FactValue.NO, Instant.now());
+        assertTrue(correction.getSafeContent().endsWith("선택: 아니요"));
+        assertEquals("NO", correction.getSelectedCode());
+    }
+
+    @Test void aiReplyKeepsAnswerAndReferencesWithoutRequestId() {
+        var reply = SolutionMessage.aiReply(301L, 5, " 보내지 마세요. ", List.of("REF_A", "REF_B"), Instant.now());
+        assertEquals(com.wsid.common.domain.MessageSender.AI, reply.getSender());
+        assertEquals("보내지 마세요.", reply.getSafeContent());
+        assertEquals(List.of("REF_A", "REF_B"), reply.getReferenceCodes());
+        assertNull(reply.getClientRequestId());
+        assertThrows(IllegalArgumentException.class, () -> SolutionMessage.aiReply(301L, 5, " ", List.of(), Instant.now()));
     }
 }

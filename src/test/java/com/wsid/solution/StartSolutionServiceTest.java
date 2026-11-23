@@ -121,8 +121,8 @@ class StartSolutionServiceTest {
         assertEquals("[{\"code\":\"TRANSFER_RESPONSE\",\"version\":1}]", stored.getValue().getCardCodesJson());
         assertEquals(MessageSender.USER, saved.get(0).getSender());
         assertEquals(InputKind.TEXT, saved.get(0).getInputKind());
-        assertEquals("피해 설명을 제출했습니다.", saved.get(0).getSafeContent());
-        assertTrue(saved.stream().noneMatch(m -> m.getSafeContent().contains("모르는")));
+        // 설명 원문을 대화 기록에 남겨 새로고침 때 보이고 이후 assist history로 써요.
+        assertEquals("모르는 사람에게 돈을 보냈고 연락이 끊겼어요.", saved.get(0).getSafeContent());
         assertNotNull(ReflectionTestUtils.getField(saved.get(0), "clientRequestId"));
         assertNull(ReflectionTestUtils.getField(saved.get(1), "clientRequestId"));
     }
