@@ -59,6 +59,12 @@ public class SolutionImageService {
         read.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
     }
 
+    private SolutionFollowUpAdviceService followUp;
+
+    /** 있으면 사진 내용·앞 대화를 history로 넘겨 안내를 받고 AI 행으로 저장해요. 없으면 예전 요약 안내만 해요. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setFollowUp(SolutionFollowUpAdviceService followUp) { this.followUp = followUp; }
+
     public SolutionMessageResponse send(long id, UUID requestId, int stateVersion, List<MultipartFile> files,
             Supplier<Optional<SolutionOwner>> owner) {
         List<OcrImage> images = validate(files);
@@ -70,8 +76,16 @@ public class SolutionImageService {
         }, owner);
         // 여기부터는 사실·카드가 이미 커밋된 상태예요. 안내는 덧붙이기만 하고 실패해도 저장 결과를 돌려줘요.
         OcrExtractResult ocr = read.get(); // 저장까지 성공했다면 OCR은 이미 실행됐어요. 방어적으로 null도 받아요.
-        var assistant = advice.optionalAdvice(saved.facts(), ocr == null ? OcrImageType.OTHER : ocr.imageType(),
-                ocr == null ? null : ocr.summary(), requestId);
+        OcrImageType type = ocr == null ? OcrImageType.OTHER : ocr.imageType();
+        if (followUp != null) {
+            // 상태 확인·안내·AI 행 저장까지 followUp이 맡아요. 안내를 못 만들면 저장 결과만 돌려줘요.
+            var resolved = owner.get();
+            var assistant = resolved.isEmpty() ? null
+                    : followUp.afterPhoto(id, resolved.get(), saved.stateVersion(), type, requestId);
+            return assistant == null ? saved : new SolutionMessageResponse(saved.facts(), saved.responseCards(),
+                    saved.nextQuestion(), saved.stateVersion(), assistant);
+        }
+        var assistant = advice.optionalAdvice(saved.facts(), type, ocr == null ? null : ocr.summary(), requestId);
         if (assistant == null || !stillCurrent(id, saved.stateVersion(), owner)) return saved;
         return new SolutionMessageResponse(saved.facts(), saved.responseCards(), saved.nextQuestion(),
                 saved.stateVersion(), assistant);

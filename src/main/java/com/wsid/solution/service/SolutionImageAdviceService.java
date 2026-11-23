@@ -2,6 +2,7 @@ package com.wsid.solution.service;
 
 import com.wsid.ai.SolutionAssistGateway;
 import com.wsid.ai.dto.OcrImageType;
+import com.wsid.ai.dto.SolutionAssistHistoryTurn;
 import com.wsid.ai.dto.SolutionAssistAnswerRequest;
 import com.wsid.ai.dto.SolutionAssistPlanRequest;
 import com.wsid.ai.dto.SolutionAssistStatus;
@@ -10,6 +11,7 @@ import com.wsid.solution.domain.SolutionFact;
 import com.wsid.solution.dto.SolutionAssistant;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
@@ -43,7 +45,7 @@ public class SolutionImageAdviceService {
     private final Duration timeout;
 
     public SolutionImageAdviceService(SolutionAssistGateway ai, ApprovedReferenceCatalog references,
-            SensitiveDescriptionGuard guard, @Value("${wsid.ai.image-advice-timeout:10s}") Duration timeout) {
+            SensitiveDescriptionGuard guard, @Value("${wsid.ai.image-advice-timeout:20s}") Duration timeout) {
         if (timeout == null || timeout.isZero() || timeout.isNegative()) {
             throw new IllegalArgumentException("사진 안내 대기 시간은 0보다 커야 해요.");
         }
@@ -56,8 +58,16 @@ public class SolutionImageAdviceService {
     /** 안내를 만들 수 없으면 null이에요. 예외를 던지지 않아요. */
     public SolutionAssistant optionalAdvice(Map<String, String> facts, OcrImageType imageType, String summary,
             UUID requestId) {
-        String question = question(imageType, summary);
-        var task = new FutureTask<>(() -> advise(facts, question));
+        return optionalAdvice(facts, question(imageType, summary), null, null, requestId);
+    }
+
+    /**
+     * 사진·선택지 답 뒤의 후속 안내. question은 서버가 만든 문장이고, history(사진·앞 대화)와 fraudType을 함께 보내
+     * 상담 맥락에 맞는 안내를 받아요. 만들 수 없으면 null이에요. 예외를 던지지 않아요.
+     */
+    public SolutionAssistant optionalAdvice(Map<String, String> facts, String question, String fraudType,
+            List<SolutionAssistHistoryTurn> history, UUID requestId) {
+        var task = new FutureTask<>(() -> advise(facts, question, fraudType, history));
         Thread.startVirtualThread(task);
         try {
             return task.get(timeout.toNanos(), TimeUnit.NANOSECONDS);
@@ -100,14 +110,16 @@ public class SolutionImageAdviceService {
         return text;
     }
 
-    private SolutionAssistant advise(Map<String, String> facts, String question) {
+    private SolutionAssistant advise(Map<String, String> facts, String question, String fraudType,
+            List<SolutionAssistHistoryTurn> history) {
         var keys = Arrays.stream(SolutionFact.values()).map(SolutionFact::key).toList();
-        var plan = ai.plan(new SolutionAssistPlanRequest(question, null, facts, keys, 0, UUID.randomUUID()));
+        var plan = ai.plan(new SolutionAssistPlanRequest(question, null, facts, keys, 0, UUID.randomUUID(),
+                fraudType, history));
         if (plan.status() != SolutionAssistStatus.EVIDENCE_READY) return null;
         var approved = references.approved(plan.candidateReferences());
         if (approved.isEmpty() || Thread.currentThread().isInterrupted()) return null;
         var answer = ai.answer(new SolutionAssistAnswerRequest(question, plan.questionIntent(), facts, approved,
-                UUID.randomUUID()));
+                UUID.randomUUID(), fraudType, history));
         if (answer.status() != SolutionAssistStatus.ANSWERED) return null;
         return new SolutionAssistant(answer.status(), answer.answer(), answer.referenceCodes(), null, null);
     }

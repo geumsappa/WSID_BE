@@ -86,7 +86,7 @@ wsid:
     assist-base-url: ${AI_ASSIST_BASE_URL:${AI_BASE_URL:http://localhost:8000}}
     assist-api-key: ${AI_ASSIST_API_KEY:${AI_API_KEY:local-dev-key}}
     ocr-read-timeout: ${AI_OCR_READ_TIMEOUT:30s} # AI-02: OCR 15초 + 사진 분류 3초에 여유를 둠
-    image-advice-timeout: ${AI_IMAGE_ADVICE_TIMEOUT:10s} # SOL-06 사실 저장 뒤 안내(assist) 대기. 넘기면 안내 없이 응답 (부가 기능이라 짧게)
+    image-advice-timeout: ${AI_IMAGE_ADVICE_TIMEOUT:20s} # 사진 업로드(SOL-06)·선택지 답(SOL-03) 뒤 LLM 안내 대기. assist PLAN+ANSWER가 10~15초라 20초. 넘기면 안내 없이 응답
   training:
     key-scene-deadline-turn: 12
     max-simulation-turns: 15
