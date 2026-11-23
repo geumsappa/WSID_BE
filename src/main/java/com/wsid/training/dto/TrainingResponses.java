@@ -14,7 +14,9 @@ public final class TrainingResponses {
         return phase == TrainingPhase.REPORT ? "RESULT" : phase.name();
     }
 
-    public record FirstMessage(MessageSender sender, String content) {}
+    public record FirstMessage(MessageSender sender, String content, List<Option> options) {
+        public FirstMessage(MessageSender sender, String content) { this(sender, content, List.of()); }
+    }
     public record Created(long trainingId, String phase, TrainingStatus status, int stateVersion,
             FirstMessage firstMessage) {}
     public record Active(long trainingId, String phase, TrainingStatus status, Instant lastActivityAt) {}

@@ -62,6 +62,7 @@ public class HttpAiClient implements AiClient {
     private static final ObjectMapper EXPLANATION_JSON = new ObjectMapper();
 
     private final RestClient restClient;
+    private final RestClient discoveryRestClient;
     private final RestClient scenarioRestClient;
     private final RestClient evaluationRestClient;
     private final RestClient assistRestClient;
@@ -72,7 +73,8 @@ public class HttpAiClient implements AiClient {
                 configuredBuilder(properties, properties.scenarioReadTimeout()),
                 configuredBuilder(properties, properties.evaluationReadTimeout()),
                 configuredBuilder(properties, properties.assistReadTimeout()),
-                configuredBuilder(properties, properties.ocrReadTimeout()));
+                configuredBuilder(properties, properties.ocrReadTimeout()),
+                configuredBuilder(properties, properties.discoveryReadTimeout()));
     }
 
     // The injected builder owns the transport; tests can bind MockRestServiceServer.
@@ -96,6 +98,14 @@ public class HttpAiClient implements AiClient {
 
     public HttpAiClient(AiProperties properties, RestClient.Builder builder, RestClient.Builder scenarioBuilder,
             RestClient.Builder evaluationBuilder, RestClient.Builder assistBuilder, RestClient.Builder ocrBuilder) {
+        this(properties, builder, scenarioBuilder, evaluationBuilder, assistBuilder, ocrBuilder, builder);
+    }
+
+    public HttpAiClient(AiProperties properties, RestClient.Builder builder, RestClient.Builder scenarioBuilder,
+            RestClient.Builder evaluationBuilder, RestClient.Builder assistBuilder, RestClient.Builder ocrBuilder,
+            RestClient.Builder discoveryBuilder) {
+        this.discoveryRestClient = discoveryBuilder.baseUrl(properties.baseUrl())
+                .defaultHeader("X-Internal-Api-Key", properties.apiKey()).build();
         this.restClient = builder.baseUrl(properties.baseUrl())
                 .defaultHeader("X-Internal-Api-Key", properties.apiKey()).build();
         this.scenarioRestClient = scenarioBuilder.baseUrl(properties.baseUrl())
@@ -450,7 +460,7 @@ public class HttpAiClient implements AiClient {
     @Override
     public com.wsid.ai.dto.DiscoveryResult suggestDiscovery(com.wsid.ai.dto.DiscoveryRequest request) {
         try {
-            var node = restClient.post().uri("/internal/ai/discovery/next")
+            var node = discoveryRestClient.post().uri("/internal/ai/discovery/next")
                     .header("X-Request-Id", request.requestId().toString()).body(request).retrieve()
                     .body(tools.jackson.databind.JsonNode.class);
             if (node == null || !node.isObject() || !node.path("success").isBoolean()

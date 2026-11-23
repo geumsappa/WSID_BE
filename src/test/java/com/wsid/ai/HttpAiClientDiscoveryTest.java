@@ -38,4 +38,18 @@ class HttpAiClientDiscoveryTest {
    server.reset();server.expect(anything()).andRespond(withSuccess(body,MediaType.APPLICATION_JSON));assertThrows(AiUnavailableException.class,()->client.suggestDiscovery(request()));server.verify();
   }
  }
+ @Test void discoveryUsesDedicatedTransportWithoutChangingOtherCalls(){
+  var discoveryBuilder=RestClient.builder();
+  var discoveryServer=MockRestServiceServer.bindTo(discoveryBuilder).build();
+  var properties=new AiProperties("http","http://ai.test","test-key",Duration.ofSeconds(2),Duration.ofSeconds(20),
+      Duration.ofSeconds(120),Duration.ofSeconds(40),Duration.ofSeconds(20),Duration.ofSeconds(30),Duration.ofSeconds(120));
+  var dedicatedClient=new HttpAiClient(properties,builder,builder,builder,builder,builder,discoveryBuilder);
+  assertEquals(Duration.ofSeconds(20),properties.readTimeout());
+  assertEquals(Duration.ofSeconds(120),properties.discoveryReadTimeout());
+  discoveryServer.expect(requestTo("http://ai.test/internal/ai/discovery/next"))
+   .andExpect(header("X-Internal-Api-Key","test-key"))
+   .andRespond(withSuccess("{\"success\":true,\"data\":{\"facts\":{},\"nextQuestion\":\"질문\",\"canGenerateScenario\":false}}",MediaType.APPLICATION_JSON));
+  assertFalse(dedicatedClient.suggestDiscovery(request()).canGenerateScenario());
+  discoveryServer.verify();server.verify();
+ }
 }
