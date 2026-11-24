@@ -76,6 +76,13 @@ public class ReportPdf {
     private static List<String> paragraphs(ReportService.Detail report) {
         var evaluation = report.evaluation();
         var lines = new ArrayList<>(List.of(report.title(), "", "종합 평가", evaluation.overallFeedback()));
+        var info = evaluation.infoDisclosure();
+        if (info != null && (!info.requested().isEmpty() || !info.provided().isEmpty())) {
+            lines.add("");
+            lines.add("개인정보 제공 여부");
+            if (!info.requested().isEmpty()) lines.add("- 상대가 요구한 정보: " + String.join(", ", info.requested()));
+            lines.add(info.provided().isEmpty() ? "- 요구받은 정보를 넘기지 않았어요." : "- 실제로 넘긴 정보: " + String.join(", ", info.provided()));
+        }
         addItems(lines, "잘한 점", evaluation.strengths());
         addItems(lines, "개선할 점", evaluation.improvements());
         addItems(lines, "권장 행동", evaluation.recommendations());

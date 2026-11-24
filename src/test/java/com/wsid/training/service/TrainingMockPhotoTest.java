@@ -31,6 +31,11 @@ class TrainingMockPhotoTest {
         assertTrue(MockPhoto.offered("사진을 보내지 마세요.").isEmpty());
         assertTrue(MockPhoto.offered("사진 확인했습니다.").isEmpty());
         assertTrue(MockPhoto.offered("계좌번호를 알려 주세요.").isEmpty());
+        // 가족 사칭: 상품권 사진 요구 → 상품권 사진 보내기
+        assertEquals(List.of(MockPhoto.GIFT_CARD), MockPhoto.offered("엄마 편의점에서 상품권 사서 뒷면 사진 찍어서 보내 줘"));
+        // 사기범이 직접 사진을 보내는 말이나 사진 소품 표시는 사용자에게 달라는 말이 아니에요
+        assertTrue(MockPhoto.offered("실물 사진 보내 드릴게요\n[사진:상품|전자레인지|김민수]").isEmpty());
+        assertTrue(MockPhoto.offered("송장 사진 보냈어요 확인해 주세요 [사진:송장|한결택배|전자레인지]").isEmpty());
     }
 
     @Test
