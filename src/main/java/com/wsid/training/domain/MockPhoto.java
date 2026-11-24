@@ -6,9 +6,10 @@ import java.util.List;
 
 /** Fixed virtual materials only. No user files, URLs or image bytes are accepted. */
 public enum MockPhoto {
-    ID_CARD("SEND_MOCK_ID_CARD", "가상 신분증 보내기", "신분증 사진"),
-    BANKBOOK("SEND_MOCK_BANKBOOK", "가상 통장 사진 보내기", "통장 사진"),
-    PHOTO("SEND_MOCK_PHOTO", "가상 사진 보내기", "사진");
+    // 채팅 속 선택지 이름. 몰입을 위해 '가상'이라는 말은 빼요 (실제 사진은 쓰지 않는다는 안내는 사이드바·동의 화면에 있어요)
+    ID_CARD("SEND_MOCK_ID_CARD", "신분증 사진 보내기", "신분증 사진"),
+    BANKBOOK("SEND_MOCK_BANKBOOK", "통장 사진 보내기", "통장 사진"),
+    PHOTO("SEND_MOCK_PHOTO", "사진 보내기", "사진");
 
     private final String code;
     private final String label;
@@ -21,7 +22,7 @@ public enum MockPhoto {
     public String subject() { return subject; }
     public String eventText() { return "[가상 " + subject + " 제공]"; }
     public TrainingResponses.MockAttachment attachment() {
-        return new TrainingResponses.MockAttachment(name(), "훈련용 가상 " + subject);
+        return new TrainingResponses.MockAttachment(name(), subject);
     }
     public TrainingResponses.Option option() {
         return new TrainingResponses.Option(code, label, attachment());
