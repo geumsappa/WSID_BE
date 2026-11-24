@@ -29,7 +29,8 @@ public class SecurityConfig {
             var cors = new CorsConfiguration();
             cors.setAllowedOrigins(origins);
             cors.setAllowCredentials(true);
-            cors.setAllowedMethods(List.of("GET", "POST", "PATCH"));
+            // DELETE: 마이페이지 리포트·상담 기록 삭제, 긴급 대응 '저장 없이 나가기'
+            cors.setAllowedMethods(List.of("GET", "POST", "PATCH", "DELETE"));
             cors.setAllowedHeaders(List.of(HttpHeaders.CONTENT_TYPE, "X-CSRF-TOKEN"));
             cors.setExposedHeaders(List.of(HttpHeaders.CONTENT_DISPOSITION));
             cors.validateAllowCredentials();
@@ -53,6 +54,7 @@ public class SecurityConfig {
         var trainingApi = PathPatternRequestMatcher.withDefaults().matcher("/api/trainings/{id}/**");
         var saveReport = PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/reports/{id}/save");
         var aiConsent = PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/users/me/ai-consent");
+        var deleteReport = PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.DELETE, "/api/reports/{id}");
         http
             .cors(cors -> cors.configurationSource(corsConfigurationSource))
             .securityContext(context -> context.securityContextRepository(securityContextRepository))
@@ -62,7 +64,7 @@ public class SecurityConfig {
                 return authentication != null && authentication.isAuthenticated()
                         && authentication.getPrincipal() instanceof Long
                         && (logout.matches(request) || saveReport.matches(request) || createTraining.matches(request)
-                            || aiConsent.matches(request)
+                            || aiConsent.matches(request) || deleteReport.matches(request)
                             || ((training.matches(request) || trainingApi.matches(request))
                                 && CsrfFilter.DEFAULT_CSRF_MATCHER.matches(request)));
             }))
@@ -73,6 +75,7 @@ public class SecurityConfig {
                 .requestMatchers(trainingApi).permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/reports", "/api/reports/{id}", "/api/reports/{id}/pdf").permitAll()
                 .requestMatchers(saveReport).permitAll()
+                .requestMatchers(deleteReport).permitAll()
                 .requestMatchers("/api/auth/**", "/api/users/me", "/api/training/**", "/api/solution/**",
                         "/api/content/**").permitAll()
                 .anyRequest().authenticated());

@@ -199,7 +199,7 @@ public class TrainingWorkflow {
         // 최대 턴에 닿아 강제로 끝날 때만 안내 문구를 써요. 종료 안내는 프론트의 결과 카드가 이어서 보여 줘요.
         String reply = finish ? (result.shouldFinish() && result.reply() != null && !result.reply().isBlank()
                         ? result.reply() : ReviewedTexts.FINISHED)
-                : keyScene ? "거래 내용을 다시 확인해 주세요. 훈련용 확인 화면에서 의심스러운 점을 살펴볼 수 있어요."
+                : keyScene ? "확인하실 내용이 있어요. 아래 화면에서 내용을 확인해 주세요."
                 : result.reply();
         var options = finish ? List.<TrainingResponses.Option>of() : optionsFor(reply);
         return write(id, owner, request, TrainingPhase.SIMULATION, locked -> {
@@ -215,9 +215,11 @@ public class TrainingWorkflow {
             var answer = TrainingMessage.fromAi(id, TrainingPhase.SIMULATION, sequence + 1, reply, now);
             answer.recordOptions(json.writeValueAsString(options));
             messages.save(answer);
-            if (result.nextScene() != null && locked.getScenarioJson() != null) {
+            if ((result.nextScene() != null || result.trainingState() != null) && locked.getScenarioJson() != null) {
                 ObjectNode progress = ((ObjectNode) scenarioJson(locked)).deepCopy();
-                progress.put("currentScene", result.nextScene());
+                if (result.nextScene() != null) progress.put("currentScene", result.nextScene());
+                // AI가 돌려준 훈련 상태(확정 설정·직전 수·장면별 횟수)를 다음 턴 시나리오와 함께 그대로 돌려줘요
+                if (result.trainingState() != null) progress.set("trainingState", result.trainingState());
                 locked.recordScenarioProgress(json.writeValueAsString(progress));
             }
             locked.recordSimulationTurn(revealKeyScene, finish, rules, now);
@@ -235,7 +237,8 @@ public class TrainingWorkflow {
 
     public TrainingResponses.Action action(long id, TrainingRequests.Action request) {
         return write(id, currentUser.id(), request, TrainingPhase.SIMULATION, session -> {
-            if (request.actionCode() == TrainingRequests.ActionCode.MOCK_APP_CLICK) {
+            if (request.actionCode() == TrainingRequests.ActionCode.MOCK_APP_CLICK
+                    || request.actionCode() == TrainingRequests.ActionCode.MOCK_TRANSFER) {
                 // 앱 설치 링크는 모의 페이지와 상관없이 대화에서 바로 눌러요. 눌렀다는 사실만 남겨요.
                 Instant now = Instant.now();
                 messages.save(TrainingMessage.action(id, nextSequence(id), request.actionCode().name(),
@@ -281,7 +284,8 @@ public class TrainingWorkflow {
             long reportId = checkedEvaluation != null ? reports.recordEvaluation(locked, checkedEvaluation, now)
                     : reports.recordCompletion(locked, verified,
                         new ReportEvaluation.MockPageEvaluation(events.contains("MOCK_PAGE_OPEN"),
-                            events.contains("MOCK_LOGIN_ATTEMPT"), verified, events.contains("MOCK_APP_CLICK")), now);
+                            events.contains("MOCK_LOGIN_ATTEMPT"), verified, events.contains("MOCK_APP_CLICK"),
+                            events.contains("MOCK_TRANSFER")), now);
             return finished(id, reportId);
         });
     }
@@ -340,7 +344,15 @@ public class TrainingWorkflow {
         }
         return new Suggestion(safeGenerated(response.path("reply").asString(), 1000), List.copyOf(actions),
                 response.path("shouldFinish").asBoolean(), response.path("mockPage").isObject(), nextScene,
-                maskedInputOf(response.path("maskedInput")));
+                maskedInputOf(response.path("maskedInput")), trainingStateOf(response.path("trainingState")));
+    }
+
+    /** AI가 돌려준 훈련 상태. 객체가 아니거나 너무 크거나 개인정보처럼 보이는 값이 있으면 버려요 (다음 턴에 AI가 대화 기록으로 다시 짐작해요) */
+    static JsonNode trainingStateOf(JsonNode node) {
+        if (node == null || !node.isObject()) return null;
+        String text = node.toString();
+        if (text.length() > 4000 || GENERATED_SENSITIVE.matcher(text).find() || LIVE_LINK.matcher(text).find()) return null;
+        return node;
     }
 
     /** AI가 돌려준 가린 문장을 한 번 더 숫자 패턴으로 가려서 써요. 이상하면(비었거나 길거나 링크 포함) 쓰지 않아요 */
@@ -394,7 +406,8 @@ public class TrainingWorkflow {
         actions.add("RISKY_RESPONSE");
         actions.add("SENSITIVE_INFO_SHARED");
         actions.add(photo.code());
-        return new Suggestion(suggestion.reply(), List.copyOf(actions), suggestion.shouldFinish(), suggestion.showPage(), suggestion.nextScene());
+        return new Suggestion(suggestion.reply(), List.copyOf(actions), suggestion.shouldFinish(), suggestion.showPage(), suggestion.nextScene(),
+                suggestion.maskedInput(), suggestion.trainingState());
     }
 
     static ReportEvaluation photoFeedback(ReportEvaluation evaluation, List<String> events, boolean verified) {
@@ -407,19 +420,22 @@ public class TrainingWorkflow {
                 evaluation == null ? List.of() : evaluation.strengths(), improvements.stream().distinct().limit(10).toList(),
                 evaluation == null ? List.of() : evaluation.turnFeedback(),
                 evaluation == null ? new ReportEvaluation.MockPageEvaluation(events.contains("MOCK_PAGE_OPEN"),
-                        events.contains("MOCK_LOGIN_ATTEMPT"), verified, events.contains("MOCK_APP_CLICK"))
+                        events.contains("MOCK_LOGIN_ATTEMPT"), verified, events.contains("MOCK_APP_CLICK"),
+                        events.contains("MOCK_TRANSFER"))
                         : evaluation.mockPageEvaluation(),
-                evaluation == null ? List.of("개인 자료를 요구받으면 직접 찾은 공식 채널에서 요청을 확인하세요.") : evaluation.recommendations());
+                evaluation == null ? List.of("개인 자료를 요구받으면 직접 찾은 공식 채널에서 요청을 확인하세요.") : evaluation.recommendations(),
+                List.of(), evaluation == null ? null : evaluation.infoDisclosure());
     }
 
     /** maskedInput: AI가 이름·주소 등을 가린 사용자 문장. 있으면 원문 대신 저장하고 화면에도 이 값을 보여 줘요 */
+    /** trainingState: AI가 다음 턴에 다시 받아야 하는 훈련 상태 (시나리오 진행 JSON에 currentScene과 함께 저장) */
     private record Suggestion(String reply, List<String> actions, boolean shouldFinish, boolean showPage, Integer nextScene,
-            String maskedInput) {
+            String maskedInput, JsonNode trainingState) {
         private Suggestion(String reply, List<String> actions, boolean shouldFinish, boolean showPage, Integer nextScene) {
-            this(reply, actions, shouldFinish, showPage, nextScene, null);
+            this(reply, actions, shouldFinish, showPage, nextScene, null, null);
         }
         private Suggestion(String reply, List<String> actions, boolean shouldFinish, boolean showPage) {
-            this(reply, actions, shouldFinish, showPage, null, null);
+            this(reply, actions, shouldFinish, showPage, null, null, null);
         }
     }
 
@@ -432,6 +448,7 @@ public class TrainingWorkflow {
                     case "MOCK_LOGIN_ATTEMPT" -> "[훈련 행동: 본인 확인 정보 제출 완료]";
                     case "OFFICIAL_CHANNEL_CHECK" -> "[훈련 행동: 공식 경로 확인]";
                     case "MOCK_APP_CLICK" -> "[훈련 행동: 가상 앱 설치 링크 누름]";
+                    case "MOCK_TRANSFER" -> "[훈련 행동: 안내받은 계좌로 송금 버튼 누름]";
                     default -> null;
                 };
                 if (event != null && emitted.add(message.getActionCode())) {
@@ -528,8 +545,12 @@ public class TrainingWorkflow {
         String organization = actorLabel(persona.path("organization").asString(""));
         // "개인", "개인 구매자"처럼 기관이 아니라 개인이면 기관 이름으로 쓰지 않아요
         if (List.of("없음", "해당 없음").contains(organization) || organization.startsWith("개인")) organization = "";
+        // "중고거래 앱의 거래 상대"처럼 기관 이름이 아니라 설명인 경우도 기관으로 쓰지 않아요
+        if (descriptive(organization)) organization = "";
         String role = actorLabel(persona.path("role").asString(""));
         String name = actorLabel(persona.path("name").asString(""));
+        // "물건을 사려는 사람"처럼 설명형 역할은 이름이 있으면 이름으로, 없으면 짧은 호칭으로 바꿔요
+        if (descriptive(role)) role = !name.isBlank() ? "" : shortRole(role);
         // 기관 이름과 역할이 겹치면 한 번만 써요 (예: "한결배송 배송팀" + "배송팀" → "한결배송 배송팀")
         String sender = !organization.isBlank()
                 ? (role.contains(organization) ? role
@@ -552,8 +573,24 @@ public class TrainingWorkflow {
         return null;
     }
 
+    /** 사람·관계를 풀어 쓴 설명인지 (보낸 사람 이름으로 쓰기엔 어색한 말) */
+    static boolean descriptive(String value) {
+        return value.contains("사람") || value.contains("려는") || value.contains("하는 ") || value.contains("의 ")
+                || value.contains("상대") || value.length() > 15;
+    }
+
+    static String shortRole(String role) {
+        if (role.contains("사려") || role.contains("구매")) return "구매자";
+        if (role.contains("팔려") || role.contains("판매")) return "판매자";
+        if (role.contains("택배") || role.contains("배송")) return "배송 담당자";
+        return "상대방";
+    }
+
     private static String actorLabel(String value) {
+        // 대화 화면의 보낸 사람 이름이라 "가상", "사칭", "~라고 주장하는 사람" 같은 설명 말은 빼요
         return value.replace("(가상)", "").replace("(사칭)", "").replace("사칭", "")
+                .replaceAll("(이)?라고\\s*(주장|자칭|소개)하는\\s*(사람|인물|자)?", "")
+                .replaceAll("가상의?\\s*", "")
                 .replaceAll("\\s+", " ").strip();
     }
 

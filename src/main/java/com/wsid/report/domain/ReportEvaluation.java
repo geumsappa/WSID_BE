@@ -3,12 +3,21 @@ package com.wsid.report.domain;
 import java.util.List;
 import tools.jackson.databind.JsonNode;
 
-/** 저장할 평가 데이터. 원문 대화는 포함하지 않아요. */
+/**
+ * 저장할 평가 데이터. 원문 대화는 포함하지 않아요.
+ * infoDisclosure: 요구받은 개인정보 종류와 실제로 넘긴 종류 (AI 서버가 훈련 기록으로 정함, 값은 없음). 예전 리포트에는 없어요.
+ */
 public record ReportEvaluation(String overallFeedback, List<String> strengths, List<String> improvements,
         List<JsonNode> turnFeedback, MockPageEvaluation mockPageEvaluation, List<String> recommendations,
-        List<ReportSource> sources) {
+        List<ReportSource> sources, InfoDisclosure infoDisclosure) {
 
     public ReportEvaluation { sources = sources == null ? List.of() : List.copyOf(sources); }
+
+    public ReportEvaluation(String overallFeedback, List<String> strengths, List<String> improvements,
+            List<JsonNode> turnFeedback, MockPageEvaluation mockPageEvaluation, List<String> recommendations,
+            List<ReportSource> sources) {
+        this(overallFeedback, strengths, improvements, turnFeedback, mockPageEvaluation, recommendations, sources, null);
+    }
 
     public ReportEvaluation(String overallFeedback, List<String> strengths, List<String> improvements,
             List<JsonNode> turnFeedback, MockPageEvaluation mockPageEvaluation, List<String> recommendations) {
@@ -16,15 +25,33 @@ public record ReportEvaluation(String overallFeedback, List<String> strengths, L
     }
 
     public ReportEvaluation withSources(List<ReportSource> sourceCredits) {
-        return new ReportEvaluation(overallFeedback, strengths, improvements, turnFeedback, mockPageEvaluation, recommendations, sourceCredits);
+        return new ReportEvaluation(overallFeedback, strengths, improvements, turnFeedback, mockPageEvaluation, recommendations, sourceCredits, infoDisclosure);
     }
 
-    /** clickedAppLink: 훈련 중 가상 앱 설치 링크([모의앱])를 눌렀는지. 예전 리포트에는 없어서 false로 읽혀요. */
+    /** 개인정보 종류 이름만 담아요 (실제 값 없음) */
+    public record InfoDisclosure(List<String> requested, List<String> provided) {
+        public InfoDisclosure {
+            requested = requested == null ? List.of() : requested.stream().filter(java.util.Objects::nonNull).limit(10).toList();
+            provided = provided == null ? List.of() : provided.stream().filter(java.util.Objects::nonNull).limit(10).toList();
+        }
+    }
+
+    /**
+     * clickedAppLink: 훈련 중 가상 앱 설치 링크([모의앱])를 눌렀는지.
+     * attemptedTransfer: 대화 속 훈련용 계좌([모의계좌])로 송금 버튼을 눌렀는지. 예전 리포트에는 없어서 false로 읽혀요.
+     */
     public record MockPageEvaluation(boolean openedPage, boolean attemptedMockLogin, boolean checkedOfficialChannel,
-            Boolean clickedAppLink) {
-        public MockPageEvaluation { clickedAppLink = Boolean.TRUE.equals(clickedAppLink); }
+            Boolean clickedAppLink, Boolean attemptedTransfer) {
+        public MockPageEvaluation {
+            clickedAppLink = Boolean.TRUE.equals(clickedAppLink);
+            attemptedTransfer = Boolean.TRUE.equals(attemptedTransfer);
+        }
         public MockPageEvaluation(boolean openedPage, boolean attemptedMockLogin, boolean checkedOfficialChannel) {
-            this(openedPage, attemptedMockLogin, checkedOfficialChannel, false);
+            this(openedPage, attemptedMockLogin, checkedOfficialChannel, false, false);
+        }
+        public MockPageEvaluation(boolean openedPage, boolean attemptedMockLogin, boolean checkedOfficialChannel,
+                Boolean clickedAppLink) {
+            this(openedPage, attemptedMockLogin, checkedOfficialChannel, clickedAppLink, false);
         }
     }
 }

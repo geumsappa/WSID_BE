@@ -141,7 +141,8 @@ public class TrainingService {
         // mockAppClicked: 새로고침·이어서 하기 뒤에도 앱 설치 카드를 '눌렀어요' 상태로 보여 주려고 내려줘요
         return new TrainingResponses.Detail(id, TrainingResponses.phase(session.getPhase()), session.getStatus(),
                 session.getStateVersion(), session.getSimulationTurnCount(), restored, options, page, scenario,
-                ready, session.isFinishSuggested(), actions.contains("MOCK_LOGIN_ATTEMPT"), actions.contains("MOCK_APP_CLICK"));
+                ready, session.isFinishSuggested(), actions.contains("MOCK_LOGIN_ATTEMPT"), actions.contains("MOCK_APP_CLICK"),
+                actions.contains("MOCK_TRANSFER"));
     }
 
     private Optional<TrainingSession> activeSession() {

@@ -28,12 +28,13 @@ public final class TrainingResponses {
     }
     public record Detail(long trainingId, String phase, TrainingStatus status, int stateVersion, int turnCount,
             List<HistoryMessage> messages, JsonNode availableOptions, MockPage mockPage, ScenarioSummary scenario,
-            boolean canGenerateScenario, boolean shouldFinish, boolean mockPageSubmitted, boolean mockAppClicked) {
+            boolean canGenerateScenario, boolean shouldFinish, boolean mockPageSubmitted, boolean mockAppClicked,
+            boolean mockTransferDone) {
         public Detail(long trainingId, String phase, TrainingStatus status, int stateVersion, int turnCount,
                 List<HistoryMessage> messages, JsonNode availableOptions, MockPage mockPage, ScenarioSummary scenario,
                 boolean canGenerateScenario, boolean shouldFinish, boolean mockPageSubmitted) {
             this(trainingId, phase, status, stateVersion, turnCount, messages, availableOptions, mockPage, scenario,
-                    canGenerateScenario, shouldFinish, mockPageSubmitted, false);
+                    canGenerateScenario, shouldFinish, mockPageSubmitted, false, false);
         }
     }
     public record MockAttachment(String type, String title) {}
@@ -66,7 +67,7 @@ public final class TrainingResponses {
     public record MockPage(String templateCode, String title, String institutionName, String screenCode,
             boolean isSimulation) {
         public static MockPage bankNotice() {
-            return new MockPage("BANK_NOTICE", "가상 금융 안내", "가상금융센터", "LOGIN_CHECK", true);
+            return new MockPage("BANK_NOTICE", "금융 안내", "금융안내센터", "LOGIN_CHECK", true);
         }
     }
     public record Action(boolean recorded, int stateVersion) {}

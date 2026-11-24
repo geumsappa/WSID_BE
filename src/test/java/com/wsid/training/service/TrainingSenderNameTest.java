@@ -43,4 +43,14 @@ class TrainingSenderNameTest {
         scenario.putObject("persona").put("organization", "한결배송 배송팀").put("role", "배송팀");
         assertEquals("한결배송 배송팀", TrainingWorkflow.summary(scenario).senderName());
     }
+
+    @Test
+    void descriptiveRoleBecomesNameOrShortTitle() {
+        var scenario = json.createObjectNode().put("title", "중고거래").put("description", "상황");
+        scenario.putObject("persona").put("organization", "중고거래 앱의 거래 상대").put("role", "물건을 사려는 사람");
+        assertEquals("구매자", TrainingWorkflow.summary(scenario).senderName());
+        assertNull(TrainingWorkflow.summary(scenario).organizationName());
+        scenario.putObject("persona").put("organization", "중고거래 앱의 거래 상대").put("role", "물건을 사려는 사람").put("name", "이준호");
+        assertEquals("이준호", TrainingWorkflow.summary(scenario).senderName());
+    }
 }
