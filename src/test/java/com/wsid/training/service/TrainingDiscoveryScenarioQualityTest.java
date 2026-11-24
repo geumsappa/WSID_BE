@@ -92,6 +92,22 @@ class TrainingDiscoveryScenarioQualityTest {
         assertTrue(response.reply().options().isEmpty());
     }
 
+    @Test void signedPreparedPlanIsMetadataNotAnAccountNumberAndIsPreserved() {
+        var fixture = new Fixture();
+        // A valid-shaped opaque receipt can contain long digit runs in its HMAC.
+        String receipt = "eJwABC_123=" + "." + "a".repeat(20) + "123456789012" + "b".repeat(32);
+        var facts = json.createObjectNode().put("pipelineVersion", 3).put("preparedScenario", receipt);
+        var aiResponse = json.createObjectNode().set("facts", facts);
+        aiResponse.put("nextQuestion", "준비 완료").put("canGenerateScenario", true);
+        when(fixture.ai.request(eq("/discovery/next"), any())).thenReturn(aiResponse);
+        var response = fixture.workflow.discover(1L,
+                new TrainingRequests.Discovery(UUID.randomUUID(), 0, "당근 마켓을 이용했어요."));
+        assertTrue(response.canGenerateScenario());
+        var saved = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(fixture.session).recordDiscovery(saved.capture(), any(), any());
+        assertEquals(receipt, json.readTree(saved.getValue()).path("preparedScenario").asString());
+    }
+
     private class Fixture {
         final TrainingSession session = mock(TrainingSession.class);
         final TrainingAiGateway ai = mock(TrainingAiGateway.class);

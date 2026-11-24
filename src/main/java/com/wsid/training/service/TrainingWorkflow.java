@@ -33,6 +33,8 @@ import tools.jackson.databind.node.ObjectNode;
 
 @Service
 public class TrainingWorkflow {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(TrainingWorkflow.class);
+    private static final Pattern PREPARED_PLAN_RECEIPT = Pattern.compile("[A-Za-z0-9_-]+={0,2}\\.[0-9a-f]{64}");
     private static final java.util.Set<String> FRAUD_TYPES = java.util.Set.of("SECONDHAND_TRADE", "SMISHING", "MESSENGER_PHISHING",
             "LOAN_FRAUD", "INSTITUTION_IMPERSONATION", "INVESTMENT_FRAUD", "JOB_SCAM");
     private static final long MAX_IMAGE_BYTES = 5L * 1024 * 1024;
@@ -98,7 +100,7 @@ public class TrainingWorkflow {
                 throw error(ErrorCode.AI_SERVICE_UNAVAILABLE);
             }
             facts.setAll((ObjectNode) response.path("facts"));
-            safeGenerated(facts.toString(), 16000);
+            validateDiscoveryFacts(facts);
             ready = response.path("canGenerateScenario").asBoolean();
             question = ready ? ("BASIC".equals(facts.path("scenarioMode").asString())
                     ? "사례 기반 기본 훈련을 준비할 수 있어요. 실제 경험과 구분된 가상 상황으로 진행합니다."
@@ -656,6 +658,30 @@ public class TrainingWorkflow {
                 .replaceAll("(?i)(?:인증번호|OTP|CVC|CVV)\\s*(?:[:=]|은|는)?\\s*\\d{3,8}", "[인증정보]")
                 .replaceAll("(?<!\\d)\\d{2,6}-\\d{2,6}-\\d{2,8}(?!\\d)|(?<!\\d)(?:\\d[ -]?){9,18}\\d(?!\\d)", "[계좌번호]");
         return SENSITIVE.matcher(text).replaceAll("[민감정보]").strip();
+    }
+
+    static void validateDiscoveryFacts(ObjectNode facts) {
+        // Bound the complete transport, including metadata, before checking prose.
+        if (facts.toString().length() > 16000) {
+            log.warn("Discovery response rejected: check=facts_size");
+            throw error(ErrorCode.AI_SERVICE_UNAVAILABLE);
+        }
+        ObjectNode prose = facts.deepCopy();
+        JsonNode receipt = prose.remove("preparedScenario");
+        if (receipt != null && (!receipt.isString() || receipt.asString().length() > 14000
+                || !PREPARED_PLAN_RECEIPT.matcher(receipt.asString()).matches())) {
+            log.warn("Discovery response rejected: check=prepared_plan_format");
+            throw error(ErrorCode.AI_SERVICE_UNAVAILABLE);
+        }
+        // This compressed, signed receipt is opaque metadata, not user-facing text.
+        // FastAPI verifies its signature/source binding before using the plan.
+        // Preserve it byte-for-byte: masking or rewriting would invalidate the signature.
+        try {
+            safeGenerated(prose.toString(), 16000);
+        } catch (ApiException error) {
+            log.warn("Discovery response rejected: check=facts_text");
+            throw error;
+        }
     }
 
     static String safeGenerated(String text, int limit) {
