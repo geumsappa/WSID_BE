@@ -127,6 +127,21 @@ class StartSolutionServiceTest {
         assertNull(ReflectionTestUtils.getField(saved.get(1), "clientRequestId"));
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"YES,NO,1", "NO,YES,1", "YES,YES,2", "NO,NO,0"})
+    void productionYamlCardsAllowYesFactsToStartWithout503(String transferred, String installed, int expected) {
+        var guides = new com.wsid.content.GuideCatalog(new ObjectMapper(),
+                new org.springframework.core.io.ClassPathResource("content/guides.yml"));
+        ReflectionTestUtils.setField(service, "cards", new com.wsid.solution.content.GuideResponseCardCatalog(guides));
+        when(ai.extractSolutionFacts(any())).thenReturn(new SolutionExtractResult(
+                SolutionDomainTest.facts(transferred, "NO", installed, "NO"), List.of()));
+        var response = service.start(request("피해 상황을 확인하고 싶어요"), owner);
+        assertEquals(expected, response.responseCards().size());
+        verify(sessions).saveAndFlush(any());
+        if ("YES".equals(transferred)) assertEquals("TRANSFER_RESPONSE", response.responseCards().getFirst().code());
+        if ("YES".equals(installed)) assertEquals("MALICIOUS_APP_RESPONSE", response.responseCards().getLast().code());
+    }
+
     @Test
     void aiFailureStartsWithManualChoiceAnd201() {
         when(ai.extractSolutionFacts(any())).thenThrow(new AiUnavailableException("timeout"));

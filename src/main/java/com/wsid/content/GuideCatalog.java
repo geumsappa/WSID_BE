@@ -7,6 +7,8 @@ import java.time.format.DateTimeParseException;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import java.util.Set;
 import java.util.function.Predicate;
 import org.springframework.beans.factory.config.YamlMapFactoryBean;
@@ -20,6 +22,7 @@ import tools.jackson.databind.ObjectMapper;
 public class GuideCatalog {
     private final List<FraudType> fraudTypes;
     private final List<Card> cards;
+    private final Map<String, Integer> cardVersions;
     private final List<Institution> institutions;
 
     public GuideCatalog(ObjectMapper mapper,
@@ -34,7 +37,9 @@ public class GuideCatalog {
         cards = published(data.responseCards(), item -> present(item.content().code(), item.content().title(),
                 item.content().priority()) && date(item.content().reviewedAt()) && populated(item.content().actions())
                 && populated(item.content().sourceReferences()) && item.content().requiredMaterials() != null
-                && item.content().institutionCodes() != null);
+                && item.content().institutionCodes() != null && (item.version() == null || item.version() >= 1));
+        cardVersions = data.responseCards().stream().filter(Entry::reviewed).collect(Collectors.toUnmodifiableMap(
+                item -> item.content().code(), item -> item.version() == null ? 1 : item.version()));
         institutions = published(data.institutions(), item -> present(item.content().code(), item.content().name(),
                 item.content().role(), item.source()) && date(item.content().reviewedAt()));
         Set<String> institutionCodes = Set.copyOf(institutions.stream().map(Institution::code).toList());
@@ -86,12 +91,17 @@ public class GuideCatalog {
         return cards.stream().filter(card -> codes.isEmpty() || codes.contains(card.code())).toList();
     }
 
+    /** Internal snapshot version; GUIDE API content remains unchanged. */
+    public int cardVersion(String code) {
+        return cardVersions.getOrDefault(code, 1);
+    }
+
     public List<Institution> institutions() {
         return institutions;
     }
 
     interface Coded { String code(); }
-    record Entry<T>(boolean reviewed, String source, String checkedAt, T content) {}
+    record Entry<T>(boolean reviewed, String source, String checkedAt, Integer version, T content) {}
     record CatalogData(List<Entry<FraudType>> fraudTypes, List<Entry<Card>> responseCards,
             List<Entry<Institution>> institutions) {}
     public record FraudTypeSummary(String code, String name, String description) {}

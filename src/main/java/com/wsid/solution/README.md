@@ -12,8 +12,8 @@
 | 필요한 항목 추가 질문 | SOL-003 | 상 | SOL-03 후속 질문·UNKNOWN 선택 건너뛰기 구현 | `SolutionQuestion` |
 | 파악된 내용 수정 | SOL-003 | 상 | 미구현 | - |
 | 분석 실패 시 직접 선택 | SOL-003 | 상 | 시작 시 대체·SOL-03 직접 선택 구현 | `StartSolutionService`, `InputKind.OPTION` |
-| 긴급 안내 우선 표시 | SOL-007 | 상 | 규칙·정렬 구현, 운영 카드 없음 | `ResponseRules` |
-| 필요한 대응 카드 제공 | SOL-004 | 상 | 규칙·카탈로그 경계 구현, 운영 콘텐츠 없음 | `ResponseRules`, `ResponseCardCatalog` |
+| 긴급 안내 우선 표시 | SOL-007 | 상 | 규칙·정렬 구현, guides.yml 카드 연결 | `ResponseRules` |
+| 필요한 대응 카드 제공 | SOL-004 | 상 | GuideCatalog 공개 카드 2장 연결 | `ResponseRules`, `ResponseCardCatalog` |
 | 확인한 사실과 카드 다시 보기 | SOL-004 | 중 | SOL-02 구현 | `SolutionQueryService` |
 | 공식 근거 문단 검색·설명 | SOL-004 · I6 | 중 | AI-07 설명 클라이언트만 구현; 검색·상담 미연결 | `AiClient.explainSolution`, `reference_codes_json` 컬럼 |
 | 피해 설명의 민감정보 처리 | 비기능 · I5 | 상 | 초안 거부 규칙 구현 | `SensitiveDescriptionGuard` |
