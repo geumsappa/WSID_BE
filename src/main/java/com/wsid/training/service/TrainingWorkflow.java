@@ -414,7 +414,7 @@ public class TrainingWorkflow {
         var photos = events.stream().map(MockPhoto::fromCode).filter(java.util.Objects::nonNull).distinct().toList();
         if (photos.isEmpty()) return evaluation;
         var improvements = new java.util.ArrayList<String>();
-        photos.forEach(photo -> improvements.add(photo.subject() + " 제공 요청에 응했어요. 실제 상황에서는 출처를 확인하기 전 자료를 보내지 마세요."));
+        photos.forEach(photo -> improvements.add(photo.subject() + " 제공 요청에 응했어요. 출처를 확인하기 전에는 자료를 보내지 마세요."));
         if (evaluation != null) improvements.addAll(evaluation.improvements());
         return new ReportEvaluation(evaluation == null ? "사진 제공 요청에 응한 행동을 되돌아보세요." : evaluation.overallFeedback(),
                 evaluation == null ? List.of() : evaluation.strengths(), improvements.stream().distinct().limit(10).toList(),
