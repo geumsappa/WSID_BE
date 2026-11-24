@@ -423,7 +423,8 @@ public class TrainingWorkflow {
                         events.contains("MOCK_LOGIN_ATTEMPT"), verified, events.contains("MOCK_APP_CLICK"),
                         events.contains("MOCK_TRANSFER"))
                         : evaluation.mockPageEvaluation(),
-                evaluation == null ? List.of("개인 자료를 요구받으면 직접 찾은 공식 채널에서 요청을 확인하세요.") : evaluation.recommendations());
+                evaluation == null ? List.of("개인 자료를 요구받으면 직접 찾은 공식 채널에서 요청을 확인하세요.") : evaluation.recommendations(),
+                List.of(), evaluation == null ? null : evaluation.infoDisclosure());
     }
 
     /** maskedInput: AI가 이름·주소 등을 가린 사용자 문장. 있으면 원문 대신 저장하고 화면에도 이 값을 보여 줘요 */
