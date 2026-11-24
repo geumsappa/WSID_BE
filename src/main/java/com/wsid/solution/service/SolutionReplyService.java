@@ -33,7 +33,7 @@ public class SolutionReplyService {
     private static final int MAX_LENGTH = 500;
     // 연락처·링크·계좌처럼 보이는 값이 있으면 쓰지 않아요 (검토된 연락처는 카드 화면에만 있어요)
     private static final Pattern UNSAFE = Pattern.compile(
-            "(?i)https?://|www\\.|(?<!\\d)\\d{2,4}[- ]?\\d{3,4}[- ]?\\d{4}(?!\\d)|(?<!\\d)\\d{9,}(?!\\d)");
+            "(?i)https?://|www\\.|(?<!\\d)\\d{2,4}[- ]?\\d{3,4}[- ]?\\d{4}(?!\\d)|(?<!\\d)1[568]\\d{2}[-. ]?\\d{4}(?!\\d)|(?<!\\d)\\d{9,}(?!\\d)");
 
     private final TrainingAiGateway ai;
     private final GuideCatalog guides;

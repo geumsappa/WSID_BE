@@ -166,7 +166,8 @@ class SolutionWebSecurityTest {
             SolutionController.class, com.wsid.solution.controller.SolutionListController.class, com.wsid.solution.service.SolutionListService.class, SolutionOwnerResolver.class, AnonymousOwnerIssuer.class,
             SensitiveDescriptionGuard.class, StartSolutionService.class, SolutionQueryService.class, SendSolutionMessageService.class,
             com.wsid.solution.service.UpdateSolutionFactsService.class, com.wsid.solution.service.CompleteSolutionService.class,
-            com.wsid.solution.service.SolutionImageService.class})
+            com.wsid.solution.service.SolutionImageService.class,
+            com.wsid.solution.service.DeleteSolutionService.class})
     static class WebConfiguration {
         @Bean static ConversionService conversionService() { return ApplicationConversionService.getSharedInstance(); }
         @Bean AiClient aiClient() { return mock(AiClient.class); }
@@ -215,6 +216,14 @@ class SolutionWebSecurityTest {
                     && Objects.equals(s.getAnonymousOwnerId(), owner.anonymousId())).findFirst();
         });
         messages = ctx.getBean(SolutionMessageRepository.class);
+        doAnswer(call -> { stored.removeIf(item -> item.getId().equals(call.getArgument(0))); return null; })
+                .when(sessions).deleteById(anyLong());
+        when(messages.deleteAllOfSolution(anyLong())).thenAnswer(call -> {
+            int before = savedMessages.size();
+            long id = call.getArgument(0);
+            savedMessages.removeIf(item -> item.getSolutionId() == id);
+            return before - savedMessages.size();
+        });
         when(messages.save(any())).thenAnswer(i -> { savedMessages.add(i.getArgument(0)); return i.getArgument(0); });
         when(messages.findBySolutionIdOrderBySequenceNoAsc(anyLong())).thenAnswer(i -> savedMessages.stream()
                 .filter(m -> m.getSolutionId() == (long) i.getArgument(0)).toList());
@@ -468,9 +477,9 @@ class SolutionWebSecurityTest {
         mvc.perform(get("/api/auth/session").session(session)).andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("LOGIN_REQUIRED"));
         var token = csrf(session);
-        int status = mvc.perform(delete("/api/solutions/sessions/301").session(session).header(token[0], token[1]))
-                .andReturn().getResponse().getStatus();
-        assertTrue(status == 401 || status == 403, "명세에 없는 DELETE는 공개하지 않아요.");
+        // DELETE is implemented now. Route access is allowed; a missing/unowned session is 404.
+        mvc.perform(delete("/api/solutions/sessions/301").session(session).header(token[0], token[1]))
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("SOLUTION_NOT_FOUND"));
         int put = mvc.perform(put("/api/solutions/sessions/301").session(session).header(token[0], token[1]))
                 .andReturn().getResponse().getStatus();
         assertTrue(put == 401 || put == 403);
@@ -478,6 +487,35 @@ class SolutionWebSecurityTest {
                 .andReturn().getResponse().getStatus();
         assertTrue(getMessages == 401 || getMessages == 403);
         // 옛 단수 경로 /api/solution/** 공개 규칙은 LSH SecurityConfig 소유라 그대로 두었어요(연결된 컨트롤러 없음).
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void deletionAllowsOnlyOwnerWithCsrfForAnonymousAndMember(boolean member) throws Exception {
+        var owner = new MockHttpSession();
+        if (member) {
+            var user = mock(User.class);
+            when(user.getId()).thenReturn(42L);
+            when(ctx.getBean(LoginService.class).requireActiveUser(42L)).thenReturn(user);
+            owner.setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY,
+                    new SecurityContextImpl(UsernamePasswordAuthenticationToken.authenticated(42L, null, List.of())));
+        }
+        var ownerToken = csrf(owner);
+        mvc.perform(start(owner, ownerToken)).andExpect(status().isCreated());
+        var stranger = new MockHttpSession();
+        var strangerToken = csrf(stranger);
+        mvc.perform(delete("/api/solutions/sessions/301").session(stranger)
+                .header(strangerToken[0], strangerToken[1]))
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("SOLUTION_NOT_FOUND"));
+        mvc.perform(delete("/api/solutions/sessions/301").session(owner))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("CSRF_TOKEN_INVALID"));
+        verify(sessions, never()).deleteById(anyLong());
+        mvc.perform(delete("/api/solutions/sessions/301").session(owner).header(ownerToken[0], ownerToken[1]))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.deleted").value(true));
+        verify(sessions).deleteById(301L);
+        verify(messages).deleteAllOfSolution(301L);
+        assertTrue(savedMessages.isEmpty());
+        mvc.perform(get("/api/solutions/sessions/301").session(owner)).andExpect(status().isNotFound());
     }
 
     private MockHttpServletRequestBuilder message(MockHttpSession session, String[] token, String id, String body) {
