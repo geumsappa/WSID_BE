@@ -29,7 +29,7 @@ class ReportPdfTest {
             assertTrue(text.contains("자료 발행기관"));
             assertTrue(text.contains("공공누리 제1유형"));
             assertTrue(text.contains("요약·재구성"));
-            assertTrue(text.contains("원기관이 제작·후원한 훈련이 아닙니다"));
+            assertTrue(text.replaceAll("\\s+", "").contains("원기관이제작·후원한자료가아닙니다"));
             assertTrue(pdf.getNumberOfPages() > 1);
             var last = new PDFTextStripper();
             last.setStartPage(pdf.getNumberOfPages());

@@ -33,6 +33,22 @@ class SolutionReplyServiceTest {
         assertEquals("돈을 보내셨다면 지금은 시간이 가장 중요해요. 먼저 은행에 지급정지를 요청하세요.", result.reply());
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {
+            "1588-1234로 전화하세요", "1588 1234로 전화하세요", "1588.1234로 전화하세요",
+            "15881234로 전화하세요", "1644-1234로 전화하세요", "1800-1234로 전화하세요",
+            "010-1234-5678로 전화하세요", "https://example.org에서 접수하세요"})
+    void contactsRemainInReviewedCardsInsteadOfGeneratedReply(String message) {
+        aiSays(message);
+        assertNull(service.withReply(started, null).reply());
+    }
+
+    @Test void ordinaryDeadlinesAndAmountsAreNotContactNumbers() {
+        String message = "3영업일 안에 서류를 제출하고, 송금액 10000원과 발생 시각을 정리하세요.";
+        aiSays(message);
+        assertEquals(message, service.withReply(started, null).reply());
+    }
+
     @Test
     void dropsReplyWithPhoneNumberOrWhenAiFails() {
         aiSays("1588-1234로 전화하세요");

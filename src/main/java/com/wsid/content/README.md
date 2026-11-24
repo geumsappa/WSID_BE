@@ -10,6 +10,10 @@ GUIDE-01~04는 로그인 없이 조회할 수 있어요. 사기 유형, 대응 �
 | 대응 카드 | `reviewed: true` | `content.sourceReferences`, `content.reviewedAt` |
 | 기관 | `reviewed: true` | 항목의 `source`, `content.reviewedAt` |
 
-날짜는 YAML에서 `"YYYY-MM-DD"` 형태로 적어요. 승인된 항목만 반환하며, 필수 필드 누락이나 코드 중복, 공개 카드가 미등록 기관을 참조하는 경우에는 시작 시 설정 오류로 처리해요. 실제 전화번호와 공식 링크는 팀 검토를 마친 뒤 등록해요. 기본 카탈로그는 비어 있어요.
+날짜는 YAML에서 `"YYYY-MM-DD"` 형태로 적어요. 승인된 항목만 반환하며, 필수 필드 누락이나 코드 중복, 공개 카드가 미등록 기관을 참조하는 경우에는 시작 시 설정 오류로 처리해요. 실제 전화번호와 공식 링크는 팀 검토를 마친 뒤 등록해요. 기본 카탈로그에는 송금 대응·악성 앱 대응 카드 2장과 기관 6개가 등록되어 있어요. `reviewed: false` 항목은 계속 제외돼요.
 
 훈련 시나리오 파일과 피해 대응 카드의 설계 문서는 각각 `src/main/resources/content/scenarios`와 `src/main/resources/content/response-cards`에 있어요.
+
+상담(SOL)의 `GuideResponseCardCatalog`도 같은 공개 카드를 사용합니다. 카드 항목의 내부 `version`(생략 시 1)을 상담 저장 스냅샷에 사용하며, 카드 내용을 수정할 때 올립니다. GUIDE API의 카드 응답에는 내부 버전 필드를 추가하지 않습니다.
+
+2026-11-24 첨부 초안을 공식 출처와 대조했습니다. 피해구제 서류의 원칙적 제출 기한은 시행령 제3조의 3영업일로 정정했고, 물품 거래 사기의 대응 절차와 개인정보 노출 등록의 효과를 일률적으로 단정하던 문구를 완화했습니다. 검토 근거는 YAML의 `sourceReferences`에 보존합니다.
