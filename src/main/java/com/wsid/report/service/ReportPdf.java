@@ -95,8 +95,7 @@ public class ReportPdf {
                 lines.add(source.title());
                 lines.add(source.sourceUrl());
             }
-            lines.add("공공누리 제1유형 자료의 수법을 참고해 요약·재구성했습니다.");
-            lines.add("등장인물과 대화는 가상이며, 원기관이 제작·후원한 훈련이 아닙니다.");
+            lines.add("공공누리 제1유형 자료의 수법을 참고해 요약·재구성했으며, 원기관이 제작·후원한 자료가 아닙니다.");
         }
         return lines;
     }
