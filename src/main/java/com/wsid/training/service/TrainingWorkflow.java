@@ -199,7 +199,7 @@ public class TrainingWorkflow {
         // 최대 턴에 닿아 강제로 끝날 때만 안내 문구를 써요. 종료 안내는 프론트의 결과 카드가 이어서 보여 줘요.
         String reply = finish ? (result.shouldFinish() && result.reply() != null && !result.reply().isBlank()
                         ? result.reply() : ReviewedTexts.FINISHED)
-                : keyScene ? "거래 내용을 다시 확인해 주세요. 훈련용 확인 화면에서 의심스러운 점을 살펴볼 수 있어요."
+                : keyScene ? "확인하실 내용이 있어요. 아래 화면에서 내용을 확인해 주세요."
                 : result.reply();
         var options = finish ? List.<TrainingResponses.Option>of() : optionsFor(reply);
         return write(id, owner, request, TrainingPhase.SIMULATION, locked -> {
