@@ -254,7 +254,10 @@ public class TrainingWorkflow {
             if (meta != null && (!page.templateCode().equals(meta.templateCode())
                     || !page.screenCode().equals(meta.screenCode()))) throw error(ErrorCode.INVALID_REQUEST);
             Instant now = Instant.now();
-            var safeMeta = new TrainingRequests.ActionMeta(page.templateCode(), page.screenCode());
+            // 확인 화면 제출이면 채운 칸의 종류만 정해진 이름 안에서 남겨요 (리포트에서 무엇을 넘겼는지 보여 주려고)
+            var filled = request.actionCode() == TrainingRequests.ActionCode.MOCK_LOGIN_ATTEMPT && meta != null
+                    ? safeFilledFields(meta.filledFields()) : null;
+            var safeMeta = new TrainingRequests.ActionMeta(page.templateCode(), page.screenCode(), filled);
             messages.save(TrainingMessage.action(id, nextSequence(id), request.actionCode().name(),
                     json.writeValueAsString(safeMeta), request.requestId(), now));
             session.recordActivity(rules, now);
@@ -292,9 +295,37 @@ public class TrainingWorkflow {
         });
     }
 
+    /** 확인 화면 입력칸 종류. 이 밖의 이름은 버려요. */
+    private static final List<String> PAGE_FIELDS = List.of("이름", "휴대폰 번호", "주소", "생년월일", "성별");
+
+    static List<String> safeFilledFields(List<String> fields) {
+        if (fields == null) return List.of();
+        return fields.stream().filter(PAGE_FIELDS::contains).distinct().toList();
+    }
+
+    /** 평가에 넘길 행동 목록: 코드와, 확인 화면 제출이면 채운 칸의 종류 */
+    private List<Map<String, Object>> actionList(long id) {
+        return messages.findByTrainingIdOrderBySequenceNoAsc(id).stream()
+                .filter(m -> m.getInputKind() == InputKind.ACTION || MockPhoto.fromCode(m.getActionCode()) != null)
+                .map(m -> {
+                    Map<String, Object> item = new java.util.LinkedHashMap<>();
+                    item.put("actionCode", m.getActionCode());
+                    String meta = m.getActionMetaJson();
+                    if ("MOCK_LOGIN_ATTEMPT".equals(m.getActionCode()) && meta != null) {
+                        JsonNode fields = json.readTree(meta).path("filledFields");
+                        if (fields.isArray()) {
+                            var names = new java.util.ArrayList<String>();
+                            fields.forEach(f -> names.add(f.asString("")));
+                            item.put("filledFields", safeFilledFields(names));
+                        }
+                    }
+                    return item;
+                }).toList();
+    }
+
     private ReportEvaluation evaluate(long id, TrainingSession session, List<String> events) {
         var response = ai.request("/training/evaluate", Map.of("scenario", scenarioJson(session),
-                "conversation", conversation(id), "actions", events.stream().map(code -> Map.of("actionCode", code)).toList()));
+                "conversation", conversation(id), "actions", actionList(id)));
         for (String field : List.of("strengths", "improvements", "turnFeedback", "recommendations")) {
             if (!response.path(field).isArray()) throw error(ErrorCode.AI_SERVICE_UNAVAILABLE);
         }
