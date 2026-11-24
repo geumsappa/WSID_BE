@@ -124,6 +124,8 @@ public class TrainingMessage {
 
     public String getTurnEvaluationJson() { return turnEvaluationJson; }
 
+    public String getActionMetaJson() { return actionMetaJson; }
+
     /** 종료 안내 같은 시스템 메시지 */
     public static TrainingMessage fromSystem(long trainingId, TrainingPhase phase, int sequenceNo, String content, Instant now) {
         return base(trainingId, phase, MessageSender.SYSTEM, sequenceNo, content, now);
