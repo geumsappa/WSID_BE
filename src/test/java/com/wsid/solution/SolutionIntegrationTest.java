@@ -130,9 +130,13 @@ class SolutionIntegrationTest {
 
         var describedRequest = start(first.cookie, first, "{\"description\":\"송금 후 연락이 끊겼어요.\"}");
         var described = send(describedRequest);
-        // 운영 카드 콘텐츠가 아직 없어 송금 YES 카드가 필요한 조합은 503이고 행을 만들지 않아요.
-        assertEquals(503, described.statusCode(), described.body());
-        assertEquals("RESPONSE_CONTENT_UNAVAILABLE", json.readTree(described.body()).path("code").asString());
+        // The production YAML now supplies the reviewed transfer response card.
+        assertEquals(201, described.statusCode(), described.body());
+        var describedData = json.readTree(described.body()).path("data");
+        long describedId = track(describedData.path("solutionId").asLong());
+        assertEquals("TRANSFER_RESPONSE", describedData.path("responseCards").get(0).path("code").asString());
+        assertEquals("YES", describedData.path("facts").path("transferredMoney").asString());
+        assertEquals(owner(a1), owner(describedId));
 
         long a2 = track(json.readTree(send(start(first.cookie, first, "{}")).body()).path("data").path("solutionId").asLong());
         UUID owner1 = owner(a1);
@@ -224,7 +228,7 @@ class SolutionIntegrationTest {
     }
 
     @Test
-    void anonymousFactCorrectionPersistsAndEmptyCatalogCardCaseRollsBack() throws Exception {
+    void anonymousFactCorrectionPersistsReviewedCardsAndProtectsVersionAndOwnership() throws Exception {
         var browser = csrf(null);
         long id = track(json.readTree(send(start(browser.cookie, browser, null)).body()).path("data").path("solutionId").asLong());
         String body = UpdateSolutionFactsRequestTest.body(0, "transferredMoney", "NO", "sharedInformation", "UNKNOWN").toString();
@@ -239,21 +243,28 @@ class SolutionIntegrationTest {
         assertEquals(data.path("facts"), restored.path("facts"));
         assertEquals(data.path("nextQuestion"), restored.path("nextQuestion"));
         assertTrue(restored.path("messages").get(2).path("content").asString().startsWith("사실 수정: "));
-        // 운영 기본 카탈로그는 비어 있어서 카드가 필요한 정정은 503이고 아무것도 바뀌지 않아요.
+        // A confirmed installation now returns and persists the reviewed app response card.
         var needsCard = send(facts(id, browser, UpdateSolutionFactsRequestTest.body(1, "installedApp", "YES").toString()));
-        assertEquals(503, needsCard.statusCode()); assertEquals("RESPONSE_CONTENT_UNAVAILABLE", json.readTree(needsCard.body()).path("code").asString());
+        assertEquals(200, needsCard.statusCode(), needsCard.body());
+        var updated = json.readTree(needsCard.body()).path("data");
+        assertEquals(2, updated.path("stateVersion").asInt());
+        assertEquals("YES", updated.path("facts").path("installedApp").asString());
+        assertEquals("MALICIOUS_APP_RESPONSE", updated.path("responseCards").get(0).path("code").asString());
+        var withCard = json.readTree(get("/api/solutions/sessions/" + id, browser.cookie).body()).path("data");
+        assertEquals(updated.path("responseCards"), withCard.path("responseCards"));
+        assertEquals(updated.path("facts"), withCard.path("facts"));
         var stale = send(facts(id, browser, body));
         assertEquals(409, stale.statusCode()); assertEquals("STATE_VERSION_CONFLICT", json.readTree(stale.body()).path("code").asString());
-        assertEquals(404, send(facts(id, csrf(null), UpdateSolutionFactsRequestTest.body(1, "installedApp", "NO").toString())).statusCode());
+        assertEquals(404, send(facts(id, csrf(null), UpdateSolutionFactsRequestTest.body(2, "installedApp", "NO").toString())).statusCode());
         var noToken = request("/api/solutions/sessions/" + id + "/facts", browser.cookie).header("Content-Type", "application/json")
                 .method("PATCH", HttpRequest.BodyPublishers.ofString(body)).build();
         assertEquals(403, send(noToken).statusCode());
-        assertEquals(1, jdbc.queryForObject("SELECT state_version FROM solution_sessions WHERE id = ?", Integer.class, id));
-        assertEquals(5, jdbc.queryForObject("SELECT count(*) FROM solution_messages WHERE solution_id = ?", Integer.class, id));
+        assertEquals(2, jdbc.queryForObject("SELECT state_version FROM solution_sessions WHERE id = ?", Integer.class, id));
+        assertEquals(7, jdbc.queryForObject("SELECT count(*) FROM solution_messages WHERE solution_id = ?", Integer.class, id));
         // 고친 버전으로 SOL-03 선택이 이어져요.
-        var next = send(message(id, browser, SendSolutionMessageRequestTest.choice(UUID.randomUUID(), 1, "installedApp", "NO").toString()));
+        var next = send(message(id, browser, SendSolutionMessageRequestTest.choice(UUID.randomUUID(), 2, "contactContinues", "NO").toString()));
         assertEquals(200, next.statusCode(), next.body());
-        assertEquals("contactContinues", json.readTree(next.body()).path("data").path("nextQuestion").path("factKey").asString());
+        assertTrue(json.readTree(next.body()).path("data").path("nextQuestion").isNull());
     }
 
     private HttpRequest facts(long id, Csrf csrf, String body) {
