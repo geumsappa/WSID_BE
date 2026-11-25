@@ -147,7 +147,7 @@ Spring 클라이언트는 SOL-01 시작과 SOL-03 메시지 서비스에 연결�
 
 계약은 [상담 LangGraph 계획서](../../../../../../docs/solution-langgraph-integration-plan.md) 3.1장이 기준이에요. 이번에는 Spring 내부 클라이언트만 구현했어요.
 
-- `planSolutionAssist`: PLAN 요청은 phase·question·questionIntent·facts(네 키 모두)·askedFactKeys·remainingClarifications(0~3)를 보내요. 응답 data는 status·questionIntent·clarification·candidateReferences·reasonCode 다섯 키가 모두 있어야 해요(해당 없으면 null 또는 빈 배열).
+- `planSolutionAssist`: PLAN 요청은 phase·question·questionIntent·facts(네 키 모두)·askedFactKeys·remainingClarifications(0~5)를 보내요. 응답 data는 status·questionIntent·clarification·candidateReferences·reasonCode 다섯 키가 모두 있어야 해요(해당 없으면 null 또는 빈 배열).
 - `answerSolutionAssist`: ANSWER 요청은 승인 근거 1~10개(`VerifiedReference`)를 보내요. 응답 data는 status·answer·referenceCodes·reasonCode가 모두 있어야 해요.
 - `SolutionAssistValidator`: 추가 질문은 현재 UNKNOWN이면서 아직 묻지 않은 사실만 허용하고, 남은 횟수가 0이면 거부해요. 후속 실행에서 질문 의도가 바뀌면 거부해요. 답변 인용은 요청 근거의 부분집합이어야 하고, 답변·추가 질문 문장에 AI-07과 같은 금지 출력 검사를 적용해요.
 - `FakeAiClient`: 질문 문장으로 의도를 추측하지 않고 첫 실행은 GENERAL이에요. "[AI_FAIL]"은 실패, "[OUT_OF_SCOPE]"는 답변 불가를 돌려줘요. 그 외에는 묻지 않은 UNKNOWN 사실을 고정 순서로 묻고, 없으면 `FAKE_ASSIST_GUIDE` 근거 후보를 돌려줘요.

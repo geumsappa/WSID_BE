@@ -3,6 +3,7 @@ package com.wsid.solution.domain;
 import com.wsid.ai.dto.SolutionAssistCondition;
 import com.wsid.ai.dto.SolutionAssistConfirmedCondition;
 import com.wsid.ai.dto.SolutionAssistIntent;
+import com.wsid.ai.dto.SolutionAssistPlanRequest;
 import java.util.HashSet;
 import java.util.List;
 import java.util.UUID;
@@ -26,13 +27,16 @@ public record PendingAssist(UUID questionId, SolutionFact fact, SolutionAssistCo
 
     public PendingAssist {
         if (confirmedConditions == null) confirmedConditions = List.of();
+        // 저장된 3회 상담과 새 5회 상담 모두 진행 중인 상태를 복원해요.
+        int totalBudget = askedFactKeys == null ? -1
+                : askedFactKeys.size() + confirmedConditions.size() + (condition == null ? 0 : 1) + remainingClarifications;
         if (questionId == null || questionIntent == null || askedFactKeys == null
                 || (fact == null) == (condition == null)
                 || (condition == null) != (conditionContent == null)
                 || (conditionContent != null && (conditionContent.isBlank()
                         || conditionContent.length() > com.wsid.ai.dto.SolutionAssistClarification.MAX_CONTENT_LENGTH))
-                || remainingClarifications < 0 || remainingClarifications > 2
-                || askedFactKeys.size() + confirmedConditions.size() + (condition == null ? 0 : 1) != 3 - remainingClarifications
+                || remainingClarifications < 0 || remainingClarifications >= totalBudget
+                || (totalBudget != 3 && totalBudget != SolutionAssistPlanRequest.MAX_CLARIFICATIONS)
                 || new HashSet<>(askedFactKeys).size() != askedFactKeys.size()
                 || (fact != null && !askedFactKeys.contains(fact.key()))
                 || askedFactKeys.stream().anyMatch(k -> SolutionFact.fromKey(k).isEmpty())

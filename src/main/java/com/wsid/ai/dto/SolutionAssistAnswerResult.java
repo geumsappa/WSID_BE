@@ -5,8 +5,14 @@ import java.util.List;
 
 /** ANSWER 결과. 요청 근거와의 대조·금지 출력 검사는 {@code SolutionAssistValidator}가 해요. */
 public record SolutionAssistAnswerResult(
-        SolutionAssistStatus status, String answer, List<String> referenceCodes, SolutionAssistReason reasonCode) {
+        SolutionAssistStatus status, String answer, List<String> referenceCodes, SolutionAssistReason reasonCode,
+        String guidance) {
     public static final int MAX_ANSWER_LENGTH = 2_000;
+
+    public SolutionAssistAnswerResult(SolutionAssistStatus status, String answer, List<String> referenceCodes,
+            SolutionAssistReason reasonCode) {
+        this(status, answer, referenceCodes, reasonCode, null);
+    }
 
     public SolutionAssistAnswerResult {
         if (status == null || referenceCodes == null
@@ -26,7 +32,8 @@ public record SolutionAssistAnswerResult(
                 valid = false;
             }
         }
-        if (!valid) {
+        if (!valid || (guidance != null && (status != SolutionAssistStatus.UNABLE_TO_ANSWER
+                || guidance.isBlank() || guidance.length() > 240))) {
             throw new IllegalArgumentException("상담 assist ANSWER 상태와 필드가 맞지 않아요.");
         }
         referenceCodes = List.copyOf(referenceCodes);

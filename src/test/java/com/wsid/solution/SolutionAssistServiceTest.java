@@ -68,7 +68,7 @@ class SolutionAssistServiceTest {
         assertEquals(1,response.stateVersion()); assertNull(response.nextQuestion());
         assertEquals(SolutionFact.INSTALLED_APP.question(),response.assistant().question().content());
         var pending=session.readPendingAssist();
-        assertEquals(2,pending.remainingClarifications());assertEquals(List.of("installedApp"),pending.askedFactKeys());
+        assertEquals(4,pending.remainingClarifications());assertEquals(List.of("installedApp"),pending.askedFactKeys());
         assertEquals(SolutionAssistIntent.DEVICE_SAFETY,pending.questionIntent());
         // 질문 원문을 남기고(새로고침 복원), 확인 질문은 대기 상태로 복원되므로 AI 행을 만들지 않아요.
         var capture=org.mockito.ArgumentCaptor.forClass(SolutionMessage.class);verify(messages).save(capture.capture());
@@ -90,6 +90,29 @@ class SolutionAssistServiceTest {
         assertEquals(user.getSequenceNo()+1,reply.getSequenceNo());
         assertNull(reply.getClientRequestId());
     }
+    @Test void chitchatGuidanceReturnsWithAnInvitationToResumeTheConsultation() {
+        when(ai.plan(any())).thenReturn(new SolutionAssistPlanResult(SolutionAssistStatus.UNABLE_TO_ANSWER,
+                null, null, List.of(), SolutionAssistReason.OUT_OF_SCOPE, "펭귄은 새예요."));
+        var reply = send(question(0)).assistant();
+        assertEquals(SolutionAssistReason.OUT_OF_SCOPE, reply.reasonCode());
+        assertTrue(reply.answer().startsWith("펭귄은 새예요."));
+        assertTrue(reply.answer().contains("피해가 의심되는 문자나 전화"));
+        assertTrue(reply.referenceCodes().isEmpty());
+        verify(ai, never()).answer(any());
+    }
+
+    @Test void insufficientVerifiedEvidenceReturnsTheModelsFollowupWithoutCitations() {
+        when(ai.plan(any())).thenReturn(evidence());
+        when(references.approved(any())).thenReturn(List.of(new VerifiedReference("APP_GUIDE", "검토 제목", "검토 문단")));
+        when(ai.answer(any())).thenReturn(new SolutionAssistAnswerResult(SolutionAssistStatus.UNABLE_TO_ANSWER,
+                null, List.of(), SolutionAssistReason.NO_EVIDENCE, "상대가 어떤 기관이라고 말했나요?"));
+        var reply = send(question(0)).assistant();
+        assertEquals(SolutionAssistReason.NO_EVIDENCE, reply.reasonCode());
+        assertTrue(reply.answer().contains("상대가 어떤 기관이라고 말했나요?"));
+        assertTrue(reply.referenceCodes().isEmpty());
+        assertNull(reply.question());
+    }
+
     @Test void choiceUpdatesFactAndCardsAndKeepsOriginalIntentWithoutOriginalText() {
         when(ai.plan(any())).thenReturn(clarification("installedApp"),evidence());
         var first=send(question(0));
@@ -99,7 +122,7 @@ class SolutionAssistServiceTest {
         assertEquals(SolutionAssistReason.NO_EVIDENCE,second.assistant().reasonCode());assertNull(session.readPendingAssist());
         var requests=org.mockito.ArgumentCaptor.forClass(SolutionAssistPlanRequest.class);verify(ai,times(2)).plan(requests.capture());
         var followup=requests.getAllValues().get(1);assertNull(followup.question());
-        assertEquals(List.of("installedApp"),followup.askedFactKeys());assertEquals(2,followup.remainingClarifications());
+        assertEquals(List.of("installedApp"),followup.askedFactKeys());assertEquals(4,followup.remainingClarifications());
         verify(ai,never()).answer(any());
     }
     @Test void storedFraudTypeIsPassedToPlanAndAnswer() {

@@ -83,7 +83,7 @@ class SolutionAssistConditionTest {
         String stored = (String) ReflectionTestUtils.getField(session, "pendingAssistJson");
         assertTrue(stored.contains(QUOTE) && stored.contains(CODE) && stored.contains(AI_QUESTION)); // 답할 때까지만 보관
         var pending = session.readPendingAssist();
-        assertTrue(pending.asksCondition()); assertNull(pending.fact()); assertEquals(2, pending.remainingClarifications());
+        assertTrue(pending.asksCondition()); assertNull(pending.fact()); assertEquals(4, pending.remainingClarifications());
         assertEquals(factsBefore, session.readFacts().toKeyMap());
         // 첫 요청부터 빈 목록을 보내 조건 질문을 켜요.
         verify(ai).plan(argThat(r -> r.conditionsEnabled() && r.confirmedConditions().isEmpty()));
@@ -113,7 +113,7 @@ class SolutionAssistConditionTest {
         var plans = ArgumentCaptor.forClass(SolutionAssistPlanRequest.class);
         verify(ai, times(2)).plan(plans.capture());
         assertEquals(expected, plans.getAllValues().get(1).confirmedConditions());
-        assertEquals(2, plans.getAllValues().get(1).remainingClarifications());
+        assertEquals(4, plans.getAllValues().get(1).remainingClarifications());
         assertEquals(List.of(), plans.getAllValues().get(1).askedFactKeys());
         verify(ai).answer(argThat(r -> expected.equals(r.confirmedConditions())));
         var saved = ArgumentCaptor.forClass(SolutionMessage.class);

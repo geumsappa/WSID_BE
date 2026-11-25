@@ -9,7 +9,13 @@ import java.util.List;
  */
 public record SolutionAssistPlanResult(
         SolutionAssistStatus status, SolutionAssistIntent questionIntent, SolutionAssistClarification clarification,
-        List<SolutionCandidateReference> candidateReferences, SolutionAssistReason reasonCode) {
+        List<SolutionCandidateReference> candidateReferences, SolutionAssistReason reasonCode, String guidance) {
+
+    public SolutionAssistPlanResult(SolutionAssistStatus status, SolutionAssistIntent questionIntent,
+            SolutionAssistClarification clarification, List<SolutionCandidateReference> candidateReferences,
+            SolutionAssistReason reasonCode) {
+        this(status, questionIntent, clarification, candidateReferences, reasonCode, null);
+    }
 
     public SolutionAssistPlanResult {
         if (status == null || candidateReferences == null
@@ -30,7 +36,8 @@ public record SolutionAssistPlanResult(
                 valid = false;
             }
         }
-        if (!valid) {
+        if (!valid || (guidance != null && (status != SolutionAssistStatus.UNABLE_TO_ANSWER
+                || reasonCode == SolutionAssistReason.LIMIT_REACHED || guidance.isBlank() || guidance.length() > 240))) {
             throw new IllegalArgumentException("상담 assist PLAN 상태와 필드가 맞지 않아요.");
         }
         candidateReferences = List.copyOf(candidateReferences);

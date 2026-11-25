@@ -21,10 +21,17 @@ public record SolutionAssistant(SolutionAssistStatus status, String answer, List
                         List.of("YES", "NO", "UNKNOWN")), null);
     }
     public static SolutionAssistant unable(SolutionAssistReason reason) {
+        return unable(reason, null);
+    }
+
+    public static SolutionAssistant unable(SolutionAssistReason reason, String guidance) {
         String text = switch (reason) {
-            case OUT_OF_SCOPE -> "피해 대응과 관련된 질문을 입력해 주세요.";
-            case LIMIT_REACHED -> "현재 확인된 정보로는 추가 안내가 어려워요.";
-            case NO_EVIDENCE -> "확인된 근거가 부족해 답변을 제공하기 어려워요. 검토된 대응 카드를 확인해 주세요.";
+            case OUT_OF_SCOPE -> (guidance == null ? "" : guidance + " ")
+                    + "피해가 의심되는 문자나 전화가 있었다면 어떤 연락을 받았는지 알려 주세요.";
+            case LIMIT_REACHED -> "지금 확인한 내용으로는 더 구체적으로 안내하기 어려워요. 상황이 달라지면 새 질문으로 알려 주세요.";
+            case NO_EVIDENCE -> guidance == null
+                    ? "이 상황에 맞는 절차를 확인하기 어려워요. 관련 대응 카드나 공식 기관 상담을 확인해 주세요."
+                    : "상황에 맞는 절차는 확인이 더 필요해요. " + guidance;
         };
         return new SolutionAssistant(SolutionAssistStatus.UNABLE_TO_ANSWER, text, List.of(), null, reason);
     }

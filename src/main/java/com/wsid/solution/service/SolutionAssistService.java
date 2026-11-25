@@ -134,7 +134,7 @@ public class SolutionAssistService {
             List<SolutionAssistConfirmedCondition> confirmed, String fraudType, List<SolutionAssistHistoryTurn> history,
             long deadline) {
         boolean first = input.purpose() == SendSolutionMessageRequest.Purpose.QUESTION;
-        int remaining = first ? 3 : previous.remainingClarifications();
+        int remaining = first ? SolutionAssistPlanRequest.MAX_CLARIFICATIONS : previous.remainingClarifications();
         // v1.2: 확정 조건 목록(첫 질문은 빈 목록)을 보내 근거 문단 기반 조건 질문을 켜요.
         var plan = ai.plan(new SolutionAssistPlanRequest(first ? input.content() : null,
                 first ? null : previous.questionIntent(), facts.toKeyMap(), first ? List.of() : previous.askedFactKeys(),
@@ -156,13 +156,13 @@ public class SolutionAssistService {
                     plan.questionIntent(), keys, confirmed, remaining - 1);
             return new Result(pending, SolutionAssistant.pending(pending));
         }
-        if (plan.status() == SolutionAssistStatus.UNABLE_TO_ANSWER) return unable(plan.reasonCode());
+        if (plan.status() == SolutionAssistStatus.UNABLE_TO_ANSWER) return new Result(null, SolutionAssistant.unable(plan.reasonCode(), plan.guidance()));
         var approved = references.approved(plan.candidateReferences());
         if (approved.isEmpty()) return unable(SolutionAssistReason.NO_EVIDENCE);
         checkDeadline(deadline);
         var answer = ai.answer(new SolutionAssistAnswerRequest(first ? input.content() : null, plan.questionIntent(),
                 facts.toKeyMap(), approved, UUID.randomUUID(), fraudType, history, confirmed));
-        if (answer.status() == SolutionAssistStatus.UNABLE_TO_ANSWER) return unable(answer.reasonCode());
+        if (answer.status() == SolutionAssistStatus.UNABLE_TO_ANSWER) return new Result(null, SolutionAssistant.unable(answer.reasonCode(), answer.guidance()));
         return new Result(null, new SolutionAssistant(answer.status(), answer.answer(), answer.referenceCodes(), null, null));
     }
     private static Result unable(SolutionAssistReason reason) { return new Result(null, SolutionAssistant.unable(reason)); }

@@ -72,7 +72,7 @@ class SolutionAssistDtoTest {
         invalid(() -> new SolutionAssistPlanRequest("질문", null, FACTS, List.of("fraudType"), 3, ID));
         invalid(() -> new SolutionAssistPlanRequest("질문", null, FACTS, List.of("installedApp", "installedApp"), 3, ID));
         invalid(() -> new SolutionAssistPlanRequest("질문", null, FACTS, List.of(), -1, ID));
-        invalid(() -> new SolutionAssistPlanRequest("질문", null, FACTS, List.of(), 4, ID));
+        invalid(() -> new SolutionAssistPlanRequest("질문", null, FACTS, List.of(), 6, ID));
         invalid(() -> new SolutionAssistPlanRequest("질문", null, FACTS, List.of(), 3, null));
     }
 

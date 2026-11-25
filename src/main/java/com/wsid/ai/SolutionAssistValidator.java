@@ -15,6 +15,12 @@ import java.util.stream.Collectors;
 public final class SolutionAssistValidator {
     private SolutionAssistValidator() {}
 
+    private static void validateGuidance(String guidance) {
+        if (guidance != null && SolutionExplanationValidator.containsForbiddenOutput(guidance)) {
+            throw new AiUnavailableException("상담 assist 안내에 허용되지 않은 출력이 있어요.");
+        }
+    }
+
     public static SolutionAssistPlanResult validate(SolutionAssistPlanRequest request, SolutionAssistPlanResult result) {
         if (request == null) {
             throw new IllegalArgumentException("상담 assist PLAN 요청이 필요해요.");
@@ -27,6 +33,7 @@ public final class SolutionAssistValidator {
                 && request.questionIntent() != result.questionIntent()) {
             throw new AiUnavailableException("상담 assist 질문 의도가 요청과 달라요.");
         }
+        validateGuidance(result.guidance());
         if (result.status() == SolutionAssistStatus.NEED_USER_INPUT) {
             var clarification = result.clarification();
             if (request.remainingClarifications() == 0) {
@@ -58,6 +65,7 @@ public final class SolutionAssistValidator {
         if (result == null) {
             throw new AiUnavailableException("상담 assist ANSWER 결과가 없어요.");
         }
+        validateGuidance(result.guidance());
         if (result.status() == SolutionAssistStatus.ANSWERED) {
             var allowed = request.verifiedReferences().stream().map(VerifiedReference::code).collect(Collectors.toSet());
             if (!allowed.containsAll(result.referenceCodes())) {

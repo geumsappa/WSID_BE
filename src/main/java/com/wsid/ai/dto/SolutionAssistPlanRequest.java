@@ -36,7 +36,7 @@ public record SolutionAssistPlanRequest(
         this(question, questionIntent, facts, askedFactKeys, remainingClarifications, requestId, fraudType, null);
     }
     public static final int MAX_QUESTION_LENGTH = 1_000;
-    public static final int MAX_CLARIFICATIONS = 3;
+    public static final int MAX_CLARIFICATIONS = 5;
 
     public SolutionAssistPlanRequest {
         SolutionAssistFacts.requireQuestion(question);

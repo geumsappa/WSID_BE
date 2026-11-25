@@ -141,7 +141,7 @@ public class HttpAiClient implements AiClient {
                     enumField(data, "status", SolutionAssistStatus.class, false),
                     enumField(data, "questionIntent", SolutionAssistIntent.class, true),
                     clarificationField(data), candidateField(data),
-                    enumField(data, "reasonCode", SolutionAssistReason.class, true));
+                    enumField(data, "reasonCode", SolutionAssistReason.class, true), optionalGuidance(data));
             return SolutionAssistValidator.validate(request, result);
         } catch (RestClientException | tools.jackson.core.JacksonException | IllegalArgumentException e) {
             // 질문·근거 원문이 예외에 담길 수 있어 원인을 보관하지 않아요.
@@ -163,11 +163,18 @@ public class HttpAiClient implements AiClient {
             var result = new SolutionAssistAnswerResult(
                     enumField(data, "status", SolutionAssistStatus.class, false),
                     answer.isNull() ? null : answer.asString(), stringArray(required(data, "referenceCodes")),
-                    enumField(data, "reasonCode", SolutionAssistReason.class, true));
+                    enumField(data, "reasonCode", SolutionAssistReason.class, true), optionalGuidance(data));
             return SolutionAssistValidator.validate(request, result);
         } catch (RestClientException | tools.jackson.core.JacksonException | IllegalArgumentException e) {
             throw new AiUnavailableException("상담 assist ANSWER 호출 또는 응답 검증에 실패했어요.");
         }
+    }
+
+    private static String optionalGuidance(JsonNode data) {
+        JsonNode guidance = data.get("guidance");
+        if (guidance == null || guidance.isNull()) return null;
+        if (!guidance.isString()) throw new IllegalArgumentException("guidance 타입이 올바르지 않아요.");
+        return guidance.asString();
     }
 
     /** 응답 봉투를 검사하고 data를 돌려줘요. 상태별 필드는 모두 있어야 하며(null 허용 필드 포함) 추가 필드는 무시해요. */
