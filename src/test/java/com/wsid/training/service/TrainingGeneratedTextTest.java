@@ -29,6 +29,38 @@ class TrainingGeneratedTextTest {
         facts.set("preparedScenario", json.createObjectNode().put("secret", "010-1234-5678"));
         assertThrows(ApiException.class, () -> TrainingWorkflow.validateDiscoveryFacts(facts));
     }
+    @Test void basicCorpusDigestIsTypedMetadataButOtherFieldsRemainChecked() {
+        var json = new tools.jackson.databind.ObjectMapper();
+        String digest = "0167efeef657b67278eb1db89e7ac0c62a7917f2492254173574dd253b8e2bbd";
+        var facts = json.createObjectNode();
+        var selection = facts.putObject("basicScenarioSelection").put("corpusHash", digest);
+        assertDoesNotThrow(() -> TrainingWorkflow.validateDiscoveryFacts(facts));
+        assertEquals(digest, selection.path("corpusHash").asString());
+        for (String unsafe : new String[]{"010-1234-5678", "https://example.org", "비밀번호: TestPass123!"}) {
+            selection.put("selectionReason", unsafe);
+            assertThrows(ApiException.class, () -> TrainingWorkflow.validateDiscoveryFacts(facts));
+            selection.remove("selectionReason");
+            facts.put("detail", unsafe);
+            assertThrows(ApiException.class, () -> TrainingWorkflow.validateDiscoveryFacts(facts));
+            facts.remove("detail");
+        }
+        for (String invalid : new String[]{"", "a".repeat(63), "g".repeat(64), "010-1234-5678", "https://example.org"}) {
+            selection.put("corpusHash", invalid);
+            assertThrows(ApiException.class, () -> TrainingWorkflow.validateDiscoveryFacts(facts));
+        }
+        selection.putNull("corpusHash");
+        assertThrows(ApiException.class, () -> TrainingWorkflow.validateDiscoveryFacts(facts));
+        selection.put("corpusHash", 123);
+        assertThrows(ApiException.class, () -> TrainingWorkflow.validateDiscoveryFacts(facts));
+        selection.set("corpusHash", json.createObjectNode());
+        assertThrows(ApiException.class, () -> TrainingWorkflow.validateDiscoveryFacts(facts));
+        selection.remove("corpusHash");
+        assertDoesNotThrow(() -> TrainingWorkflow.validateDiscoveryFacts(facts));
+        facts.put("basicScenarioSelection", "invalid");
+        assertThrows(ApiException.class, () -> TrainingWorkflow.validateDiscoveryFacts(facts));
+        facts.putNull("basicScenarioSelection");
+        assertDoesNotThrow(() -> TrainingWorkflow.validateDiscoveryFacts(facts));
+    }
     @Test void completeDiscoveryFactsStillHaveASizeLimitIncludingReceipt() {
         var facts = new tools.jackson.databind.ObjectMapper().createObjectNode();
         facts.put("preparedScenario", "a".repeat(14000) + "." + "b".repeat(64));
