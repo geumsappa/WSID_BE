@@ -108,6 +108,26 @@ class TrainingDiscoveryScenarioQualityTest {
         assertEquals(receipt, json.readTree(saved.getValue()).path("preparedScenario").asString());
     }
 
+    @Test void basicSelectionWithDeployedCorpusHashIsSavedWithout503() {
+        var fixture = new Fixture();
+        // SHA-256 of the committed LF JSON, as checked out on the Linux deployment.
+        String digest = "0167efeef657b67278eb1db89e7ac0c62a7917f2492254173574dd253b8e2bbd";
+        var facts = json.createObjectNode().put("scenarioMode", "BASIC").put("discoveryReady", true)
+                .put("basicScenarioOffered", false);
+        facts.putObject("basicScenarioSelection").put("caseId", "RC-001").put("consentTurn", 3)
+                .put("selectionReason", "DEFAULT_CATALOG_SELECTION").put("corpusHash", digest);
+        var aiResponse = json.createObjectNode().set("facts", facts);
+        aiResponse.put("nextQuestion", "사례 기반 기본 훈련을 준비할 수 있어요.").put("canGenerateScenario", true);
+        when(fixture.ai.request(eq("/discovery/next"), any())).thenReturn(aiResponse);
+        var response = fixture.workflow.discover(1L,
+                new TrainingRequests.Discovery(UUID.randomUUID(), 0, "기본 훈련 시작"));
+        assertTrue(response.canGenerateScenario());
+        assertTrue(response.reply().options().isEmpty());
+        var saved = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(fixture.session).recordDiscovery(saved.capture(), any(), any());
+        assertEquals(digest, json.readTree(saved.getValue()).path("basicScenarioSelection").path("corpusHash").asString());
+    }
+
     private class Fixture {
         final TrainingSession session = mock(TrainingSession.class);
         final TrainingAiGateway ai = mock(TrainingAiGateway.class);

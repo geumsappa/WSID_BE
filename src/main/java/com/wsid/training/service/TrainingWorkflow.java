@@ -660,6 +660,8 @@ public class TrainingWorkflow {
         return SENSITIVE.matcher(text).replaceAll("[민감정보]").strip();
     }
 
+    private static final Pattern CORPUS_DIGEST = Pattern.compile("[0-9a-f]{64}");
+
     static void validateDiscoveryFacts(ObjectNode facts) {
         // Bound the complete transport, including metadata, before checking prose.
         if (facts.toString().length() > 16000) {
@@ -676,6 +678,20 @@ public class TrainingWorkflow {
         // This compressed, signed receipt is opaque metadata, not user-facing text.
         // FastAPI verifies its signature/source binding before using the plan.
         // Preserve it byte-for-byte: masking or rewriting would invalidate the signature.
+        JsonNode selection = prose.get("basicScenarioSelection");
+        if (selection != null && !selection.isNull()) {
+            if (!(selection instanceof ObjectNode selectionObject)) {
+                log.warn("Discovery response rejected: check=basic_selection_format");
+                throw error(ErrorCode.AI_SERVICE_UNAVAILABLE);
+            }
+            JsonNode digest = selectionObject.remove("corpusHash");
+            if (digest != null && (!digest.isString() || !CORPUS_DIGEST.matcher(digest.asString()).matches())) {
+                log.warn("Discovery response rejected: check=basic_corpus_hash_format");
+                throw error(ErrorCode.AI_SERVICE_UNAVAILABLE);
+            }
+            // The validated digest identifies source bytes; it is not prose or a personal identifier.
+            // Only exclude that field from text scanning and preserve the original facts unchanged.
+        }
         try {
             safeGenerated(prose.toString(), 16000);
         } catch (ApiException error) {
