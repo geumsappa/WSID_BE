@@ -1,11 +1,11 @@
-# WSID_BE: develop에 push → 테스트(기존 ci.yml과 같은 내용) 통과 → BE_ENV 시크릿을 Parameter Store에 저장 → BE 서버의 be만 다시 빌드
+# WSID_BE: main에 push → 테스트(기존 ci.yml과 같은 내용) 통과 → BE_ENV 시크릿을 Parameter Store에 저장 → BE 서버의 be만 다시 빌드
 # 이 파일을 WSID_BE 레포의 .github/workflows/deploy.yml 로 넣어요.
 # 필요한 GitHub Secret (레포 Settings > Secrets and variables > Actions > Repository secret): BE_ENV = deploy/be/.env 전체 내용
 name: Deploy BE
 
 on:
   push:
-    branches: [develop]
+    branches: [main]
   workflow_dispatch:
 
 env:
@@ -14,7 +14,7 @@ env:
   FE_INSTANCE: i-031099c85a885063f   # wsid-fe (Nginx + FE)
   BE_INSTANCE: i-0c765a9b9741a54fd   # wsid-be (Spring + Redis)
   AI_INSTANCE: i-0ae5dcac7c5d45bcd   # wsid-ai
-  KIT_BRANCH: new-main               # 배포 키트(deploy/)가 있는 WSID_FE 브랜치
+  KIT_BRANCH: main                   # 배포 키트(deploy/)가 있는 WSID_FE 브랜치
 
 permissions:
   id-token: write   # AWS OIDC 로그인
