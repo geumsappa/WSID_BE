@@ -1,0 +1,9 @@
+# 형식이 유효한 미검토 초안. 실제 출처 검토가 끝나기 전에는 공개하지 않아요.
+# source/checked_at은 초안용 값이며 승인 담당자가 실제 확인 후 갱신해야 해요.
+code: SECONDHAND_TRADE
+name: "중고거래 관련 사기"
+description: "중고거래 중 발생할 수 있는 위험 유형"
+display_order: 10
+reviewed: false
+source: "https://example.invalid/fraud-types/secondhand-trade"
+checked_at: "2026-11-16"

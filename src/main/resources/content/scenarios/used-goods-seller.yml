@@ -1,0 +1,40 @@
+# 중고거래·판매자 훈련 시나리오 (초안)
+# 팀이 PR로 검토하는 콘텐츠예요. 검토가 끝나면 reviewed를 true로 바꿔요.
+id: used-goods-seller
+fraud_type_code: USED_GOODS_TRADE   # 유형 코드 값은 팀에서 확정해요
+version: 1
+reviewed: false
+
+user_facts:            # 이 사실이 확인되면 이 시나리오를 쓸 수 있어요
+  activity: 중고거래
+  role: 판매자
+
+counterpart_role: 구매자라고 소개한 상대
+virtual_incident: 구매자라고 소개한 상대가 결제 확인을 요청함
+
+opening_line: "안녕하세요, 올리신 물건 보고 연락드렸어요. 아직 판매 중인가요?"
+
+key_scene:
+  text: "입금했는데 확인이 안 되네요. 제가 보낸 링크에서 결제 확인을 눌러 주시겠어요?"
+  deadline_turn: 12
+
+fallback_line: "네, 확인해 볼게요. 조금만 기다려 주세요."
+
+turns:
+  max: 15
+
+allowed_actions:       # AI는 사용자 답변을 이 중 하나로 분류해요
+  - ASK_QUESTION
+  - REFUSE
+  - VERIFY_OFFICIAL_CHANNEL
+  - END_CONTACT_AND_VERIFY
+  - COMPLY
+  - UNCLEAR
+
+evaluation:
+  good:
+    - VERIFY_OFFICIAL_CHANNEL
+    - END_CONTACT_AND_VERIFY
+    - REFUSE
+  risky:
+    - COMPLY

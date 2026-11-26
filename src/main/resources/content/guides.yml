@@ -1,0 +1,79 @@
+# 첨부 초안을 바탕으로 2026-11-24 공식 출처를 대조하고 문구를 정정한 카드·기관 정보.
+# reviewed는 출처·형식 검토 상태이며, 내용 변경 시 카드 항목의 version도 올립니다.
+fraudTypes: []
+
+responseCards:
+  - reviewed: true
+    version: 1
+    source: "https://www.fss.or.kr/fss/main/sub1.do?menuNo=201287"
+    checkedAt: "2026-11-24"
+    content:
+      code: TRANSFER_RESPONSE
+      title: "돈을 보냈다면 지금 바로 지급정지를 요청하세요"
+      priority: URGENT
+      actions:
+        - "112나 돈을 보낸 금융회사 콜센터에 바로 연락해 지급정지를 요청하세요."
+        - "전화로 피해구제를 신청했다면 원칙적으로 신청일부터 3영업일 안에 서류를 제출하세요. 제출 방법과 기한은 해당 금융회사에 바로 확인하세요."
+        - "상대가 더 보내라고 해도 추가로 입금하지 마세요."
+        - "물품 거래 사기 등은 적용 절차가 다를 수 있어요. 거래 내역을 보존하고 경찰과 금융회사에 가능한 조치를 확인하세요."
+      requiredMaterials:
+        - "송금 내역(이체 확인증, 계좌번호, 금액, 시각)"
+        - "상대와 주고받은 문자·메신저·통화 기록"
+        - "신분증"
+      institutionCodes: [POLICE_112, COUNTERSCAM_1394, FSS]
+      sourceReferences:
+        - title: "통신사기피해환급법 시행령 제3조 — 피해구제 신청 서류"
+          url: "https://www.law.go.kr/법령/통신사기피해환급법시행령/제3조"
+        - title: "금융위원회 — 보이스피싱·스미싱 피해 대응"
+          url: "https://www.fsc.go.kr/po010101/85338"
+        - title: "경찰청 — 통합대응단 대표번호 1394"
+          url: "https://www.police.go.kr/user/bbs/BD_selectBbs.do?q_bbsCode=1002&q_bbscttSn=20260202072152883"
+      reviewedAt: "2026-11-24"
+
+  - reviewed: true
+    version: 1
+    source: "https://www.kisa.or.kr/118"
+    checkedAt: "2026-11-24"
+    content:
+      code: MALICIOUS_APP_RESPONSE
+      title: "앱을 설치했다면 휴대폰부터 차단하세요"
+      priority: URGENT
+      actions:
+        - "비행기 모드로 바꾸거나 전원을 끄고, 신고와 상담은 다른 전화로 하세요."
+        - "모바일 백신으로 검사하고 악성 앱을 삭제하세요. 삭제·초기화가 어렵다면 118이나 제조사 서비스센터에 도움을 요청하세요."
+        - "엠세이퍼에서 내 명의로 개통된 휴대폰이 없는지 확인하세요."
+        - "개인정보가 노출됐다면 개인정보노출자 사고예방시스템에 등록하세요. 등록만으로 모든 금융거래가 자동 차단되는 것은 아니에요."
+      requiredMaterials:
+        - "설치한 앱 이름과 받은 문자·링크 화면"
+        - "설치한 날짜와 시각"
+      institutionCodes: [KISA_118, MSAFER, PD]
+      sourceReferences:
+        - title: "한국인터넷진흥원 118 상담"
+          url: "https://www.kisa.or.kr/118"
+        - title: "KISA 보호나라 — 악성 앱 피해 예방·대응"
+          url: "https://www.krcert.or.kr/kr/bbs/view.do?bbsId=B0000133&menuNo=205020&nttId=72139"
+        - title: "엠세이퍼 — 명의도용방지서비스 안내"
+          url: "https://msafer.or.kr/protection_use/guide.do"
+        - title: "생활법령정보 — 개인정보 노출·악성 앱 피해 조치"
+          url: "https://www.easylaw.go.kr/CSP/OnhunqueansLstRetrieve.laf?onhunqnaAstSeq=86&onhunqueAstSeq=396"
+      reviewedAt: "2026-11-24"
+
+institutions:
+  - reviewed: true
+    source: "https://www.police.go.kr"
+    content: { code: POLICE_112, name: "경찰청 112", role: "긴급 신고 및 지급정지 요청", phone: "112", officialUrl: "https://www.police.go.kr", reviewedAt: "2026-11-24" }
+  - reviewed: true
+    source: "https://www.counterscam112.go.kr"
+    content: { code: COUNTERSCAM_1394, name: "보이스피싱 통합대응단 1394", role: "보이스피싱 신고·상담·제보", phone: "1394", officialUrl: "https://www.counterscam112.go.kr", reviewedAt: "2026-11-24" }
+  - reviewed: true
+    source: "https://www.fss.or.kr"
+    content: { code: FSS, name: "금융감독원", role: "금융 피해 상담 및 피해구제 정보", phone: "1332", officialUrl: "https://www.fss.or.kr/fss/main/sub1.do?menuNo=201287", reviewedAt: "2026-11-24" }
+  - reviewed: true
+    source: "https://www.kisa.or.kr/118"
+    content: { code: KISA_118, name: "한국인터넷진흥원 118", role: "스미싱·악성앱 정보보호 상담", phone: "118", officialUrl: "https://www.kisa.or.kr/118", reviewedAt: "2026-11-24" }
+  - reviewed: true
+    source: "https://www.msafer.or.kr"
+    content: { code: MSAFER, name: "엠세이퍼 명의도용 방지", role: "내 명의 휴대폰 개통 조회·차단", phone: "", officialUrl: "https://www.msafer.or.kr", reviewedAt: "2026-11-24" }
+  - reviewed: true
+    source: "https://pd.fss.or.kr"
+    content: { code: PD, name: "개인정보노출자 사고예방시스템", role: "개인정보 노출 등록 및 금융거래 시 본인확인 강화", phone: "", officialUrl: "https://pd.fss.or.kr", reviewedAt: "2026-11-24" }

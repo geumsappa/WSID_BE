@@ -1,0 +1,284 @@
+package com.wsid.solution.domain;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import jakarta.persistence.Version;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import org.hibernate.annotations.ColumnTransformer;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+
+/**
+ * solution_sessions 테이블. 피해 대응 한 건의 현재 상태예요.
+ * 확인한 사실과 적용된 카드 코드·버전을 저장해요. 피해 설명은 목록 제목용 앞 40자(title)만 남기고 전체 원문은 저장하지 않아요.
+ * 소유자는 회원(user_id)과 비회원(anonymous_owner_id) 중 정확히 하나예요(DB CHECK 제약).
+ */
+@Entity
+@Table(name = "solution_sessions")
+public class SolutionSession {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private static final ObjectMapper JSON = new ObjectMapper();
+
+    @Column(name = "user_id", updatable = false)
+    private Long userId;
+
+    /** 비회원 상담 소유자. 서버가 HTTP 세션에 발급한 UUID이며 응답에 노출하지 않아요. */
+    @Column(name = "anonymous_owner_id", updatable = false)
+    private UUID anonymousOwnerId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private SolutionStatus status;
+
+    /** SOL-07 목록 제목. 민감정보 검사를 통과한 첫 피해 설명의 앞 40자예요. 설명 없이 시작하면 null이에요. */
+    @Column(name = "title", length = 60, updatable = false)
+    private String title;
+
+    @Column(name = "fraud_type_code", length = 50)
+    private String fraudTypeCode;
+
+    /** 확인한 사실. 예: {"transferredMoney":"YES","sharedInformation":"UNKNOWN","installedApp":"UNKNOWN","contactContinues":"NO"} */
+    @Column(name = "facts_json", nullable = false, columnDefinition = "jsonb")
+    @ColumnTransformer(write = "cast(? as jsonb)")
+    private String factsJson;
+
+    /** 적용된 대응 카드 참조(본문 복사 없음). 예: [{"code":"TRANSFER_RESPONSE","version":1}] */
+    @Column(name = "card_codes_json", nullable = false, columnDefinition = "jsonb")
+    @ColumnTransformer(write = "cast(? as jsonb)")
+    private String cardCodesJson;
+
+    /** 아직 답을 받지 못한 다음 질문. 예: {"factKey":"sharedInformation","content":"...","options":["YES","NO","UNKNOWN"]} */
+    @Column(name = "next_question_json", columnDefinition = "jsonb")
+    @ColumnTransformer(write = "cast(? as jsonb)")
+    private String nextQuestionJson;
+
+    @Column(name = "pending_assist_json", columnDefinition = "jsonb")
+    @ColumnTransformer(write = "cast(? as jsonb)")
+    private String pendingAssistJson;
+
+    public PendingAssist readPendingAssist() {
+        if (pendingAssistJson == null) return null;
+        try {
+            var node = JSON.readTree(pendingAssistJson);
+            // 옛 행은 5필드(네 사실 질문), v1.2 행은 condition·conditionContent·confirmedConditions가 더해진 8필드예요.
+            boolean legacy = node.isObject() && node.size() == 5 && node.path("fact").isString();
+            boolean v12 = node.isObject() && node.size() == 8 && node.has("fact") && node.has("condition")
+                    && (node.path("conditionContent").isString() || node.path("conditionContent").isNull())
+                    && (node.path("fact").isString() || node.path("fact").isNull())
+                    && (node.path("condition").isObject() || node.path("condition").isNull())
+                    && node.path("confirmedConditions").isArray();
+            if (!(legacy || v12)
+                    || !node.path("questionId").isString()
+                    || !node.path("questionIntent").isString() || !node.path("askedFactKeys").isArray()
+                    || !node.path("remainingClarifications").isInt()) throw new IllegalArgumentException();
+            String id = node.path("questionId").asString();
+            if (!UUID.fromString(id).toString().equalsIgnoreCase(id)) throw new IllegalArgumentException();
+            for (var key : node.path("askedFactKeys")) if (!key.isString()) throw new IllegalArgumentException();
+            return JSON.treeToValue(node, PendingAssist.class);
+        } catch (RuntimeException e) { throw corrupted("pending_assist_json"); }
+    }
+
+    public static String encodePendingAssist(PendingAssist state) {
+        return state == null ? null : JSON.writeValueAsString(state);
+    }
+
+    @Version
+    @Column(name = "state_version", nullable = false)
+    private Integer stateVersion;
+
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private Instant createdAt;
+
+    @Column(name = "updated_at", nullable = false)
+    private Instant updatedAt;
+
+    @Column(name = "completed_at")
+    private Instant completedAt;
+
+    protected SolutionSession() {
+        // JPA용
+    }
+
+    /**
+     * SOL-01: 초기 상태를 모두 채운 새 상담. 저장 전에 완성해 첫 INSERT의 state_version이 0이 되게 해요.
+     * fraud_type_code는 시작 시 추정하지 않아 null이에요.
+     */
+    public static SolutionSession start(SolutionOwner owner, SolutionFacts facts, List<ResponseCard> cards,
+            SolutionQuestion nextQuestion, Instant now) {
+        return start(owner, facts, cards, nextQuestion, null, now);
+    }
+
+    /** @param title {@link SolutionTitles#fromDescription}로 만든 목록 제목. 설명이 없으면 null. */
+    public static SolutionSession start(SolutionOwner owner, SolutionFacts facts, List<ResponseCard> cards,
+            SolutionQuestion nextQuestion, String title, Instant now) {
+        return start(owner, facts, cards, nextQuestion, title, null, now);
+    }
+
+    /** @param fraudTypeCode AI-06이 제안한 사기 유형 코드. 없으면 null. */
+    public static SolutionSession start(SolutionOwner owner, SolutionFacts facts, List<ResponseCard> cards,
+            SolutionQuestion nextQuestion, String title, String fraudTypeCode, Instant now) {
+        if (owner == null || facts == null || cards == null || now == null) {
+            throw new IllegalArgumentException("상담 초기 상태가 올바르지 않아요.");
+        }
+        SolutionSession session = new SolutionSession();
+        session.userId = owner.userId();
+        session.anonymousOwnerId = owner.anonymousId();
+        session.status = SolutionStatus.ACTIVE;
+        session.title = title;
+        session.fraudTypeCode = com.wsid.ai.dto.SolutionFraudType.orNull(fraudTypeCode);
+        session.factsJson = JSON.writeValueAsString(facts.toKeyMap());
+        session.cardCodesJson = JSON.writeValueAsString(cards.stream().map(card -> {
+            Map<String, Object> ref = new LinkedHashMap<>();
+            ref.put("code", card.code());
+            ref.put("version", card.version());
+            return ref;
+        }).toList());
+        session.nextQuestionJson = nextQuestion == null ? null : JSON.writeValueAsString(nextQuestion);
+        session.createdAt = now;
+        session.updatedAt = now;
+        return session;
+    }
+
+    /** CAS로 저장할 불변 값. 관리 엔티티를 변경하지 않아 @Version UPDATE와 중복되지 않아요. */
+    public static Update prepareUpdate(SolutionFacts facts, List<ResponseCard> cards,
+            SolutionQuestion question, Instant now) {
+        return prepareUpdate(facts, cards, question, null, now);
+    }
+
+    /** @param fraudTypeCode 새로 제안된 사기 유형. 저장된 값이 없을 때만 채워요(COALESCE). */
+    public static Update prepareUpdate(SolutionFacts facts, List<ResponseCard> cards,
+            SolutionQuestion question, String fraudTypeCode, Instant now) {
+        if (facts == null || cards == null || now == null) throw new IllegalArgumentException("갱신 상태가 필요해요.");
+        return new Update(JSON.writeValueAsString(facts.toKeyMap()),
+                JSON.writeValueAsString(cards.stream().map(c -> new CardReference(c.code(), c.version())).toList()),
+                question == null ? null : JSON.writeValueAsString(question), now,
+                com.wsid.ai.dto.SolutionFraudType.orNull(fraudTypeCode));
+    }
+
+    public record Update(String factsJson, String cardsJson, String questionJson, Instant updatedAt, String fraudTypeCode) {
+        public Update(String factsJson, String cardsJson, String questionJson, Instant updatedAt) {
+            this(factsJson, cardsJson, questionJson, updatedAt, null);
+        }
+    }
+
+    /** SOL-02: 저장된 사실. 4개 키·허용 값이 아니면 조용히 고치지 않고 예외를 던져요. */
+    public SolutionFacts readFacts() {
+        try {
+            JsonNode node = JSON.readTree(factsJson);
+            if (!node.isObject()) throw new IllegalArgumentException();
+            var values = new HashMap<String, String>();
+            for (String key : node.propertyNames()) {
+                JsonNode value = node.get(key);
+                if (!value.isString()) throw new IllegalArgumentException();
+                values.put(key, value.stringValue());
+            }
+            return SolutionFacts.fromStrings(values);
+        } catch (RuntimeException e) {
+            throw corrupted("facts_json");
+        }
+    }
+
+    /** SOL-02: 저장된 카드 참조. 저장 순서를 유지해요. */
+    public List<CardReference> readCardReferences() {
+        try {
+            JsonNode node = JSON.readTree(cardCodesJson);
+            if (!node.isArray()) throw new IllegalArgumentException();
+            var refs = new ArrayList<CardReference>();
+            for (JsonNode item : node) {
+                if (!item.isObject() || item.size() != 2 || !item.path("code").isString() || !item.path("version").isInt()) {
+                    throw new IllegalArgumentException();
+                }
+                refs.add(new CardReference(item.get("code").stringValue(), item.get("version").intValue()));
+            }
+            return List.copyOf(refs);
+        } catch (RuntimeException e) {
+            throw corrupted("card_codes_json");
+        }
+    }
+
+    /** SOL-02: 저장된 다음 질문. 없으면 null이에요. */
+    public SolutionQuestion readNextQuestion() {
+        if (nextQuestionJson == null) return null;
+        try {
+            JsonNode node = JSON.readTree(nextQuestionJson);
+            if (!node.isObject() || node.size() != 3 || !node.path("factKey").isString()
+                    || !node.path("content").isString() || !node.path("options").isArray()) {
+                throw new IllegalArgumentException();
+            }
+            String factKey = node.get("factKey").stringValue();
+            String content = node.get("content").stringValue();
+            var options = new ArrayList<String>();
+            for (JsonNode option : node.get("options")) {
+                if (!option.isString()) throw new IllegalArgumentException();
+                options.add(option.stringValue());
+            }
+            if (SolutionFact.fromKey(factKey).isEmpty() || content.isBlank() || !options.equals(SolutionQuestion.OPTIONS)) {
+                throw new IllegalArgumentException();
+            }
+            return new SolutionQuestion(factKey, content, options);
+        } catch (RuntimeException e) {
+            throw corrupted("next_question_json");
+        }
+    }
+
+    /** 저장값 자체는 메시지에 넣지 않고 상담 ID와 컬럼 이름만 남겨요. */
+    private IllegalStateException corrupted(String column) {
+        return new IllegalStateException("상담 저장값 형식이 올바르지 않아요: solutionId=" + id + ", column=" + column);
+    }
+
+    public String getTitle() { return title; }
+    public Instant getCreatedAt() { return createdAt; }
+    public Instant getCompletedAt() { return completedAt; }
+
+    public Long getId() {
+        return id;
+    }
+
+    public Long getUserId() {
+        return userId;
+    }
+
+    public UUID getAnonymousOwnerId() {
+        return anonymousOwnerId;
+    }
+
+    public SolutionStatus getStatus() {
+        return status;
+    }
+
+    public String getFraudTypeCode() {
+        return fraudTypeCode;
+    }
+
+    public String getFactsJson() {
+        return factsJson;
+    }
+
+    public String getCardCodesJson() {
+        return cardCodesJson;
+    }
+
+    public String getNextQuestionJson() {
+        return nextQuestionJson;
+    }
+
+    public int getStateVersion() {
+        return stateVersion == null ? 0 : stateVersion;
+    }
+}

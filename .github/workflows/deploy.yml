@@ -1,0 +1,96 @@
+# WSID_BE: main에 push → 테스트(기존 ci.yml과 같은 내용) 통과 → BE_ENV 시크릿을 Parameter Store에 저장 → BE 서버의 be만 다시 빌드
+# 이 파일을 WSID_BE 레포의 .github/workflows/deploy.yml 로 넣어요.
+# 필요한 GitHub Secret (레포 Settings > Secrets and variables > Actions > Repository secret): BE_ENV = deploy/be/.env 전체 내용
+name: Deploy BE
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ap-southeast-2
+  AWS_ROLE_ARN: arn:aws:iam::609546557988:role/wsid-github-deploy
+  FE_INSTANCE: i-031099c85a885063f   # wsid-fe (Nginx + FE)
+  BE_INSTANCE: i-0c765a9b9741a54fd   # wsid-be (Spring + Redis)
+  AI_INSTANCE: i-0ae5dcac7c5d45bcd   # wsid-ai
+  KIT_BRANCH: main                   # 배포 키트(deploy/)가 있는 WSID_FE 브랜치
+
+permissions:
+  id-token: write   # AWS OIDC 로그인
+  contents: read
+
+concurrency:
+  group: deploy-be
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: wsid_test
+          POSTGRES_USER: wsid
+          POSTGRES_PASSWORD: wsid
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U wsid -d wsid_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DB_URL: jdbc:postgresql://localhost:5432/wsid_test
+      WSID_TEST_DB_URL: jdbc:postgresql://localhost:5432/wsid_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+      - name: 단위·DB·HTTP 통합 테스트
+        run: ./gradlew test dbTest integrationTest --max-workers=2
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: AWS 로그인 (OIDC, 액세스 키 없음)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: BE_ENV → Parameter Store (/wsid/be/env)
+        env:
+          ENV_CONTENT: ${{ secrets.BE_ENV }}
+        run: |
+          test -n "$ENV_CONTENT" || { echo "::error::BE_ENV 시크릿이 비어 있어요"; exit 1; }
+          aws ssm put-parameter --name /wsid/be/env --type SecureString --tier Intelligent-Tiering \
+            --overwrite --value "$ENV_CONTENT" > /dev/null
+          echo "저장 완료 (값은 출력하지 않아요)"
+      - name: 서버에 배포 명령 (SSM)
+        env:
+          INSTANCE: ${{ env.BE_INSTANCE }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          CMD="cd /opt/wsid/WSID_FE && git fetch -q origin $KIT_BRANCH && git reset -q --hard FETCH_HEAD && bash deploy/scripts/deploy.sh be $BRANCH"
+          ID=$(aws ssm send-command --instance-ids "$INSTANCE" --document-name AWS-RunShellScript \
+                --comment "wsid deploy be $BRANCH ${GITHUB_SHA::7}" \
+                --parameters "$(jq -n --arg c "$CMD" '{commands:[$c], executionTimeout:["3600"]}')" \
+                --query Command.CommandId --output text)
+          echo "SSM command: $ID"
+          for i in $(seq 1 240); do
+            sleep 10
+            STATUS=$(aws ssm get-command-invocation --command-id "$ID" --instance-id "$INSTANCE" --query Status --output text 2>/dev/null || echo Pending)
+            case "$STATUS" in Pending|InProgress|Delayed) continue ;; *) break ;; esac
+          done
+          echo "상태: $STATUS"
+          aws ssm get-command-invocation --command-id "$ID" --instance-id "$INSTANCE" --query StandardOutputContent --output text | tail -60
+          aws ssm get-command-invocation --command-id "$ID" --instance-id "$INSTANCE" --query StandardErrorContent --output text | tail -40
+          test "$STATUS" = Success
